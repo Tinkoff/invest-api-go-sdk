@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	token = "t.tvbCMHE6yEoWg5H_BJgr_vRscM4VsSUy4fbvuiVCXM5dTC2BXawTfG1bO8QKs1a_gfkDbToRhqJA10j2_tlhSA"
+	token = "token here"
 )
 
 func main() {
