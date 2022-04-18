@@ -1,4 +1,4 @@
-module github.com/oridisboss/investAPI
+module github.com/tinkoff/invest-api-go-sdk
 
 go 1.17
 
