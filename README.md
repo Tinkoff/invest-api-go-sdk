@@ -3,7 +3,6 @@
 [![GoDoc](https://godoc.org/github.com/Tinkoff/invest-openapi-go-sdk?status.svg)](https://pkg.go.dev/github.com/Tinkoff/invest-openapi-go-sdk)
 
 SDK предназначен для упрощения работы с API Тинькофф Инвестиций.
-Можно использовать для любой автоматизации 
 
 ## Начало работы
 
