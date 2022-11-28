@@ -19,23 +19,34 @@ var Instruments sdk.InstrumentsServiceClient
 var MarketData sdk.MarketDataServiceClient
 var Operations sdk.OperationsServiceClient
 var Users sdk.UsersServiceClient
+var Orders sdk.OrdersServiceClient
 
 var ctx context.Context
 var conn *grpc.ClientConn
 var md metadata.MD
 
 const (
-	address = "invest-public-api.tinkoff.ru:443"
+	address_prod    = "invest-public-api.tinkoff.ru:443"
+	address_sandbox = "sandbox-invest-public-api.tinkoff.ru:443"
 )
 
-func SDKInit(token string) {
+func GetContext() *context.Context {
+	return &ctx
+}
+
+func SDKInit(token string, use_sandbox bool) {
 	rand.Seed(time.Now().UnixNano())
 	flag.Parse()
 
 	ctx = context.Background()
 
+	addr := address_prod
+	if use_sandbox {
+		addr = address_sandbox
+	}
+
 	var err error
-	conn, err = grpc.Dial(address,
+	conn, err = grpc.Dial(addr,
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})), grpc.WithBlock())
 	if err != nil {
 		log.Fatalf("did not connect to grpc server: %v", err)
@@ -48,7 +59,7 @@ func SDKInit(token string) {
 	MarketData = sdk.NewMarketDataServiceClient(conn)
 	Operations = sdk.NewOperationsServiceClient(conn)
 	Users = sdk.NewUsersServiceClient(conn)
-	MarketData = sdk.NewMarketDataServiceClient(conn)
+	Orders = sdk.NewOrdersServiceClient(conn)
 }
 
 func GetOrderBook(figi string, depth int32) (*sdk.GetOrderBookResponse, error) {
@@ -254,3 +265,16 @@ func GetFuturesAll() ([]*sdk.Future, error) {
 	}
 	return r.GetInstruments(), nil
 }
+
+func QuotationFromFloat(value float64) *sdk.Quotation {
+	mv := new(sdk.Quotation)
+	mv.Units = int64(value)
+	mv.Nano = int32((value - float64(int64(value))) * 1000000000)
+	return mv
+}
+
+func FloatFromQuotation(value *sdk.Quotation) float64 {
+	mv := float64(value.Units) + float64(value.Nano)/1000000000
+	return mv
+}
+

@@ -8,16 +8,17 @@ import (
 	investapi "github.com/tinkoff/invest-api-go-sdk"
 )
 
+//пример работает для "боевого" токена (можно read-only) для клиентов с минимум одним открытым брокерским счетов
 const (
-	token = "token here"
+	token = "t.gXvyoB..." //вставьте Ваш токен
 )
 
 func main() {
 
-	//Инициализируем SDK
+	//Инициализируем SDK, первый параметр - токен доступа, второй параметр - использовать ли "песочницу" (true) или работать в "боевом" режиме (false)
 	//Если инициализация не получится - выпадем в fatal
 
-	SDKInit(token)
+	SDKInit(token, false)
 
 	//Получаем список акций, доступных для торгов через API
 	shares, err := GetSharesBase()
@@ -91,11 +92,13 @@ func main() {
 	}
 
 	//Получаем список операций с 01.01.2022
-	start, _ = time.Parse("2006-01-02", "2021-01-01")
+	log.Printf("Получаем список операций по сч %s... \n", account)
+
+	start, _ = time.Parse("2006-01-02", "2022-01-01")
 	to = time.Now()
 	operations, err := GetOperations(account, start, to, "")
 	if err != nil {
-		log.Fatalf("Невозможно получить список операций, ошибка - %s", err)
+		log.Fatalf("Невозможно получить список операций, ошибка - %s, %s", err, account)
 	}
 
 	for i := range operations {
@@ -103,6 +106,7 @@ func main() {
 	}
 
 	//Получаем портфолио
+	log.Printf("Получаем портфель по сч %s... \n", account)
 	portfolio, err := GetPortfolio(account)
 	if err != nil {
 		log.Fatalf("Невозможно получить портфолио, ошибка - %s", err)
@@ -112,6 +116,7 @@ func main() {
 	}
 
 	//Получаем позиции
+	log.Printf("Получаем позиции по сч %s... \n", account)
 	positions, err := GetPositions(account)
 	if err != nil {
 		log.Fatalf("Невозможно получить список позиций, ошибка - %s", err)
