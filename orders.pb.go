@@ -463,7 +463,7 @@ type OrderTrade struct {
 
 	DateTime *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=date_time,json=dateTime,proto3" json:"date_time,omitempty"` //Дата и время совершения сделки в часовом поясе UTC.
 	Price    *Quotation             `protobuf:"bytes,2,opt,name=price,proto3" json:"price,omitempty"`                       //Цена за 1 инструмент, по которой совершена сделка.
-	Quantity int64                  `protobuf:"varint,3,opt,name=quantity,proto3" json:"quantity,omitempty"`                //Количество лотов в сделке.
+	Quantity int64                  `protobuf:"varint,3,opt,name=quantity,proto3" json:"quantity,omitempty"`                //Количество штук в сделке.
 	TradeId  string                 `protobuf:"bytes,4,opt,name=trade_id,json=tradeId,proto3" json:"trade_id,omitempty"`    //Идентификатор сделки
 }
 

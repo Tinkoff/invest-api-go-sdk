@@ -10,7 +10,7 @@ import (
 
 //пример работает для "боевого" токена (можно read-only) для клиентов с минимум одним открытым брокерским счетов
 const (
-	token = "t.gXvyoB..." //вставьте Ваш токен
+	token = "t.gXvyo..." //вставьте Ваш токен
 )
 
 func main() {
@@ -87,14 +87,16 @@ func main() {
 	}
 	account := ""
 	for i := range accounts {
-		account = accounts[i].Id
+		if account == "" {
+			account = accounts[i].Id
+		}
 		fmt.Printf("%v\n", accounts[i])
 	}
 
 	//Получаем список операций с 01.01.2022
 	log.Printf("Получаем список операций по сч %s... \n", account)
 
-	start, _ = time.Parse("2006-01-02", "2022-01-01")
+	start, _ = time.Parse("2006-01-02", "2022-11-10")
 	to = time.Now()
 	operations, err := GetOperations(account, start, to, "")
 	if err != nil {
