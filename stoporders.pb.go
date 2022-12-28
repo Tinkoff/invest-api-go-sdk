@@ -189,7 +189,7 @@ type PostStopOrderRequest struct {
 	ExpirationType StopOrderExpirationType `protobuf:"varint,7,opt,name=expiration_type,json=expirationType,proto3,enum=tinkoff.public.invest.api.contract.v1.StopOrderExpirationType" json:"expiration_type,omitempty"` //Тип экспирации заявки.
 	StopOrderType  StopOrderType           `protobuf:"varint,8,opt,name=stop_order_type,json=stopOrderType,proto3,enum=tinkoff.public.invest.api.contract.v1.StopOrderType" json:"stop_order_type,omitempty"`            //Тип заявки.
 	ExpireDate     *timestamppb.Timestamp  `protobuf:"bytes,9,opt,name=expire_date,json=expireDate,proto3" json:"expire_date,omitempty"`                                                                                 //Дата и время окончания действия стоп-заявки в часовом поясе UTC. **Для ExpirationType = GoodTillDate заполнение обязательно**.
-	InstrumentId   string                  `protobuf:"bytes,10,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"`                                                                          //Идентификатор инструмента, принимает значения Figi или instrument_uid
+	InstrumentId   string                  `protobuf:"bytes,10,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"`                                                                          //Идентификатор инструмента, принимает значения Figi или instrument_uid.
 }
 
 func (x *PostStopOrderRequest) Reset() {
@@ -559,7 +559,7 @@ type StopOrder struct {
 	ExpirationTime     *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=expiration_time,json=expirationTime,proto3" json:"expiration_time,omitempty"`                                            //Дата и время снятия заявки в часовом поясе UTC.
 	Price              *MoneyValue            `protobuf:"bytes,10,opt,name=price,proto3" json:"price,omitempty"`                                                                                   //Цена заявки за 1 инструмент. Для получения стоимости лота требуется умножить на лотность инструмента.
 	StopPrice          *MoneyValue            `protobuf:"bytes,11,opt,name=stop_price,json=stopPrice,proto3" json:"stop_price,omitempty"`                                                          //Цена активации стоп-заявки за 1 инструмент. Для получения стоимости лота требуется умножить на лотность инструмента.
-	InstrumentUid      string                 `protobuf:"bytes,12,opt,name=instrument_uid,json=instrumentUid,proto3" json:"instrument_uid,omitempty"`                                              //instrument_uid идентификатор инструмента
+	InstrumentUid      string                 `protobuf:"bytes,12,opt,name=instrument_uid,json=instrumentUid,proto3" json:"instrument_uid,omitempty"`                                              //instrument_uid идентификатор инструмента.
 }
 
 func (x *StopOrder) Reset() {

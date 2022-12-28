@@ -464,7 +464,7 @@ type OrderTrade struct {
 	DateTime *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=date_time,json=dateTime,proto3" json:"date_time,omitempty"` //Дата и время совершения сделки в часовом поясе UTC.
 	Price    *Quotation             `protobuf:"bytes,2,opt,name=price,proto3" json:"price,omitempty"`                       //Цена за 1 инструмент, по которой совершена сделка.
 	Quantity int64                  `protobuf:"varint,3,opt,name=quantity,proto3" json:"quantity,omitempty"`                //Количество штук в сделке.
-	TradeId  string                 `protobuf:"bytes,4,opt,name=trade_id,json=tradeId,proto3" json:"trade_id,omitempty"`    //Идентификатор сделки
+	TradeId  string                 `protobuf:"bytes,4,opt,name=trade_id,json=tradeId,proto3" json:"trade_id,omitempty"`    //Идентификатор сделки.
 }
 
 func (x *OrderTrade) Reset() {
@@ -1261,7 +1261,7 @@ type OrderStage struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Price    *MoneyValue `protobuf:"bytes,1,opt,name=price,proto3" json:"price,omitempty"`                    //Цена за 1 инструмент. Для получения стоимости лота требуется умножить на лотность инструмента..
+	Price    *MoneyValue `protobuf:"bytes,1,opt,name=price,proto3" json:"price,omitempty"`                    //Цена за 1 инструмент. Для получения стоимости лота требуется умножить на лотность инструмента.
 	Quantity int64       `protobuf:"varint,2,opt,name=quantity,proto3" json:"quantity,omitempty"`             //Количество лотов.
 	TradeId  string      `protobuf:"bytes,3,opt,name=trade_id,json=tradeId,proto3" json:"trade_id,omitempty"` //Идентификатор сделки.
 }

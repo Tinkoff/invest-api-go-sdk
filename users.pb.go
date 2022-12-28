@@ -559,8 +559,8 @@ type GetUserTariffResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	UnaryLimits  []*UnaryLimit  `protobuf:"bytes,1,rep,name=unary_limits,json=unaryLimits,proto3" json:"unary_limits,omitempty"`    //Массив лимитов пользователя по unary-запросам
-	StreamLimits []*StreamLimit `protobuf:"bytes,2,rep,name=stream_limits,json=streamLimits,proto3" json:"stream_limits,omitempty"` //Массив лимитов пользователей для stream-соединений
+	UnaryLimits  []*UnaryLimit  `protobuf:"bytes,1,rep,name=unary_limits,json=unaryLimits,proto3" json:"unary_limits,omitempty"`    //Массив лимитов пользователя по unary-запросам.
+	StreamLimits []*StreamLimit `protobuf:"bytes,2,rep,name=stream_limits,json=streamLimits,proto3" json:"stream_limits,omitempty"` //Массив лимитов пользователей для stream-соединений.
 }
 
 func (x *GetUserTariffResponse) Reset() {
@@ -615,8 +615,8 @@ type UnaryLimit struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	LimitPerMinute int32    `protobuf:"varint,1,opt,name=limit_per_minute,json=limitPerMinute,proto3" json:"limit_per_minute,omitempty"` //Количество unary-запросов в минуту
-	Methods        []string `protobuf:"bytes,2,rep,name=methods,proto3" json:"methods,omitempty"`                                        //Названия методов
+	LimitPerMinute int32    `protobuf:"varint,1,opt,name=limit_per_minute,json=limitPerMinute,proto3" json:"limit_per_minute,omitempty"` //Количество unary-запросов в минуту.
+	Methods        []string `protobuf:"bytes,2,rep,name=methods,proto3" json:"methods,omitempty"`                                        //Названия методов.
 }
 
 func (x *UnaryLimit) Reset() {
@@ -671,8 +671,8 @@ type StreamLimit struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Limit   int32    `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`    //Максимальное количество stream-соединений
-	Streams []string `protobuf:"bytes,2,rep,name=streams,proto3" json:"streams,omitempty"` //Названия stream-методов
+	Limit   int32    `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`    //Максимальное количество stream-соединений.
+	Streams []string `protobuf:"bytes,2,rep,name=streams,proto3" json:"streams,omitempty"` //Названия stream-методов.
 }
 
 func (x *StreamLimit) Reset() {

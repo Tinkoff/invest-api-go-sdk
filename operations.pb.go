@@ -943,18 +943,18 @@ type PortfolioResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	TotalAmountShares     *MoneyValue                 `protobuf:"bytes,1,opt,name=total_amount_shares,json=totalAmountShares,proto3" json:"total_amount_shares,omitempty"`             //Общая стоимость акций в портфеле в рублях.
-	TotalAmountBonds      *MoneyValue                 `protobuf:"bytes,2,opt,name=total_amount_bonds,json=totalAmountBonds,proto3" json:"total_amount_bonds,omitempty"`                //Общая стоимость облигаций в портфеле в рублях.
-	TotalAmountEtf        *MoneyValue                 `protobuf:"bytes,3,opt,name=total_amount_etf,json=totalAmountEtf,proto3" json:"total_amount_etf,omitempty"`                      //Общая стоимость фондов в портфеле в рублях.
-	TotalAmountCurrencies *MoneyValue                 `protobuf:"bytes,4,opt,name=total_amount_currencies,json=totalAmountCurrencies,proto3" json:"total_amount_currencies,omitempty"` //Общая стоимость валют в портфеле в рублях.
-	TotalAmountFutures    *MoneyValue                 `protobuf:"bytes,5,opt,name=total_amount_futures,json=totalAmountFutures,proto3" json:"total_amount_futures,omitempty"`          //Общая стоимость фьючерсов в портфеле в рублях.
+	TotalAmountShares     *MoneyValue                 `protobuf:"bytes,1,opt,name=total_amount_shares,json=totalAmountShares,proto3" json:"total_amount_shares,omitempty"`             //Общая стоимость акций в портфеле.
+	TotalAmountBonds      *MoneyValue                 `protobuf:"bytes,2,opt,name=total_amount_bonds,json=totalAmountBonds,proto3" json:"total_amount_bonds,omitempty"`                //Общая стоимость облигаций в портфеле.
+	TotalAmountEtf        *MoneyValue                 `protobuf:"bytes,3,opt,name=total_amount_etf,json=totalAmountEtf,proto3" json:"total_amount_etf,omitempty"`                      //Общая стоимость фондов в портфеле.
+	TotalAmountCurrencies *MoneyValue                 `protobuf:"bytes,4,opt,name=total_amount_currencies,json=totalAmountCurrencies,proto3" json:"total_amount_currencies,omitempty"` //Общая стоимость валют в портфеле.
+	TotalAmountFutures    *MoneyValue                 `protobuf:"bytes,5,opt,name=total_amount_futures,json=totalAmountFutures,proto3" json:"total_amount_futures,omitempty"`          //Общая стоимость фьючерсов в портфеле.
 	ExpectedYield         *Quotation                  `protobuf:"bytes,6,opt,name=expected_yield,json=expectedYield,proto3" json:"expected_yield,omitempty"`                           //Текущая относительная доходность портфеля, в %.
 	Positions             []*PortfolioPosition        `protobuf:"bytes,7,rep,name=positions,proto3" json:"positions,omitempty"`                                                        //Список позиций портфеля.
 	AccountId             string                      `protobuf:"bytes,8,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`                                       //Идентификатор счёта пользователя.
-	TotalAmountOptions    *MoneyValue                 `protobuf:"bytes,9,opt,name=total_amount_options,json=totalAmountOptions,proto3" json:"total_amount_options,omitempty"`          //Общая стоимость опционов в портфеле в рублях.
-	TotalAmountSp         *MoneyValue                 `protobuf:"bytes,10,opt,name=total_amount_sp,json=totalAmountSp,proto3" json:"total_amount_sp,omitempty"`                        //Общая стоимость структурных нот в портфеле в рублях
-	TotalAmountPortfolio  *MoneyValue                 `protobuf:"bytes,11,opt,name=total_amount_portfolio,json=totalAmountPortfolio,proto3" json:"total_amount_portfolio,omitempty"`   //Общая стоимость портфеля в рублях
-	VirtualPositions      []*VirtualPortfolioPosition `protobuf:"bytes,12,rep,name=virtual_positions,json=virtualPositions,proto3" json:"virtual_positions,omitempty"`                 //Массив виртуальных позиций портфеля
+	TotalAmountOptions    *MoneyValue                 `protobuf:"bytes,9,opt,name=total_amount_options,json=totalAmountOptions,proto3" json:"total_amount_options,omitempty"`          //Общая стоимость опционов в портфеле.
+	TotalAmountSp         *MoneyValue                 `protobuf:"bytes,10,opt,name=total_amount_sp,json=totalAmountSp,proto3" json:"total_amount_sp,omitempty"`                        //Общая стоимость структурных нот в портфеле.
+	TotalAmountPortfolio  *MoneyValue                 `protobuf:"bytes,11,opt,name=total_amount_portfolio,json=totalAmountPortfolio,proto3" json:"total_amount_portfolio,omitempty"`   //Общая стоимость портфеля.
+	VirtualPositions      []*VirtualPortfolioPosition `protobuf:"bytes,12,rep,name=virtual_positions,json=virtualPositions,proto3" json:"virtual_positions,omitempty"`                 //Массив виртуальных позиций портфеля.
 }
 
 func (x *PortfolioResponse) Reset() {
@@ -1334,10 +1334,10 @@ type PortfolioPosition struct {
 	ExpectedYield            *Quotation  `protobuf:"bytes,5,opt,name=expected_yield,json=expectedYield,proto3" json:"expected_yield,omitempty"`                                      //Текущая рассчитанная доходность позиции.
 	CurrentNkd               *MoneyValue `protobuf:"bytes,6,opt,name=current_nkd,json=currentNkd,proto3" json:"current_nkd,omitempty"`                                               // Текущий НКД.
 	AveragePositionPricePt   *Quotation  `protobuf:"bytes,7,opt,name=average_position_price_pt,json=averagePositionPricePt,proto3" json:"average_position_price_pt,omitempty"`       // Deprecated Средняя цена позиции в пунктах (для фьючерсов). **Возможна задержка до секунды для пересчёта**.
-	CurrentPrice             *MoneyValue `protobuf:"bytes,8,opt,name=current_price,json=currentPrice,proto3" json:"current_price,omitempty"`                                         //Текущая цена за 1 инструмент. Для получения стоимости лота требуется умножить на лотность инструмента..
+	CurrentPrice             *MoneyValue `protobuf:"bytes,8,opt,name=current_price,json=currentPrice,proto3" json:"current_price,omitempty"`                                         //Текущая цена за 1 инструмент. Для получения стоимости лота требуется умножить на лотность инструмента.
 	AveragePositionPriceFifo *MoneyValue `protobuf:"bytes,9,opt,name=average_position_price_fifo,json=averagePositionPriceFifo,proto3" json:"average_position_price_fifo,omitempty"` //Средняя цена позиции по методу FIFO. **Возможна задержка до секунды для пересчёта**.
 	QuantityLots             *Quotation  `protobuf:"bytes,10,opt,name=quantity_lots,json=quantityLots,proto3" json:"quantity_lots,omitempty"`                                        //Deprecated Количество лотов в портфеле.
-	Blocked                  bool        `protobuf:"varint,21,opt,name=blocked,proto3" json:"blocked,omitempty"`                                                                     //Заблокировано.
+	Blocked                  bool        `protobuf:"varint,21,opt,name=blocked,proto3" json:"blocked,omitempty"`                                                                     //Заблокировано на бирже.
 	PositionUid              string      `protobuf:"bytes,24,opt,name=position_uid,json=positionUid,proto3" json:"position_uid,omitempty"`                                           //position_uid-идентификатора инструмента
 	InstrumentUid            string      `protobuf:"bytes,25,opt,name=instrument_uid,json=instrumentUid,proto3" json:"instrument_uid,omitempty"`                                     //instrument_uid-идентификатора инструмента
 	VarMargin                *MoneyValue `protobuf:"bytes,26,opt,name=var_margin,json=varMargin,proto3" json:"var_margin,omitempty"`                                                 //Вариационная маржа
@@ -1495,7 +1495,7 @@ type VirtualPortfolioPosition struct {
 	ExpectedYield            *Quotation             `protobuf:"bytes,7,opt,name=expected_yield,json=expectedYield,proto3" json:"expected_yield,omitempty"`                                       //Текущая рассчитанная доходность позиции.
 	ExpectedYieldFifo        *Quotation             `protobuf:"bytes,8,opt,name=expected_yield_fifo,json=expectedYieldFifo,proto3" json:"expected_yield_fifo,omitempty"`                         //Текущая рассчитанная доходность позиции.
 	ExpireDate               *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=expire_date,json=expireDate,proto3" json:"expire_date,omitempty"`                                                //Дата до которой нужно продать виртуальные бумаги, после этой даты виртуальная позиция "сгорит"
-	CurrentPrice             *MoneyValue            `protobuf:"bytes,10,opt,name=current_price,json=currentPrice,proto3" json:"current_price,omitempty"`                                         //Текущая цена за 1 инструмент. Для получения стоимости лота требуется умножить на лотность инструмента..
+	CurrentPrice             *MoneyValue            `protobuf:"bytes,10,opt,name=current_price,json=currentPrice,proto3" json:"current_price,omitempty"`                                         //Текущая цена за 1 инструмент. Для получения стоимости лота требуется умножить на лотность инструмента.
 	AveragePositionPriceFifo *MoneyValue            `protobuf:"bytes,11,opt,name=average_position_price_fifo,json=averagePositionPriceFifo,proto3" json:"average_position_price_fifo,omitempty"` //Средняя цена позиции по методу FIFO. **Возможна задержка до секунды для пересчёта**.
 }
 
@@ -1615,7 +1615,7 @@ type PositionsSecurities struct {
 	unknownFields protoimpl.UnknownFields
 
 	Figi            string `protobuf:"bytes,1,opt,name=figi,proto3" json:"figi,omitempty"`                                                //Figi-идентификатор бумаги.
-	Blocked         int64  `protobuf:"varint,2,opt,name=blocked,proto3" json:"blocked,omitempty"`                                         //Заблокировано.
+	Blocked         int64  `protobuf:"varint,2,opt,name=blocked,proto3" json:"blocked,omitempty"`                                         //Количество бумаг заблокированных выставленными заявками.
 	Balance         int64  `protobuf:"varint,3,opt,name=balance,proto3" json:"balance,omitempty"`                                         //Текущий незаблокированный баланс.
 	PositionUid     string `protobuf:"bytes,4,opt,name=position_uid,json=positionUid,proto3" json:"position_uid,omitempty"`               //Уникальный идентификатор позиции.
 	InstrumentUid   string `protobuf:"bytes,5,opt,name=instrument_uid,json=instrumentUid,proto3" json:"instrument_uid,omitempty"`         //Уникальный идентификатор  инструмента.
@@ -1711,7 +1711,7 @@ type PositionsFutures struct {
 	unknownFields protoimpl.UnknownFields
 
 	Figi          string `protobuf:"bytes,1,opt,name=figi,proto3" json:"figi,omitempty"`                                        //Figi-идентификатор фьючерса.
-	Blocked       int64  `protobuf:"varint,2,opt,name=blocked,proto3" json:"blocked,omitempty"`                                 //Заблокировано.
+	Blocked       int64  `protobuf:"varint,2,opt,name=blocked,proto3" json:"blocked,omitempty"`                                 //Количество бумаг заблокированных выставленными заявками.
 	Balance       int64  `protobuf:"varint,3,opt,name=balance,proto3" json:"balance,omitempty"`                                 //Текущий незаблокированный баланс.
 	PositionUid   string `protobuf:"bytes,4,opt,name=position_uid,json=positionUid,proto3" json:"position_uid,omitempty"`       //Уникальный идентификатор позиции.
 	InstrumentUid string `protobuf:"bytes,5,opt,name=instrument_uid,json=instrumentUid,proto3" json:"instrument_uid,omitempty"` //Уникальный идентификатор  инструмента.
@@ -1792,7 +1792,7 @@ type PositionsOptions struct {
 
 	PositionUid   string `protobuf:"bytes,1,opt,name=position_uid,json=positionUid,proto3" json:"position_uid,omitempty"`       //Уникальный идентификатор позиции опциона.
 	InstrumentUid string `protobuf:"bytes,2,opt,name=instrument_uid,json=instrumentUid,proto3" json:"instrument_uid,omitempty"` //Уникальный идентификатор  инструмента.
-	Blocked       int64  `protobuf:"varint,11,opt,name=blocked,proto3" json:"blocked,omitempty"`                                //Заблокировано.
+	Blocked       int64  `protobuf:"varint,11,opt,name=blocked,proto3" json:"blocked,omitempty"`                                //Количество бумаг заблокированных выставленными заявками.
 	Balance       int64  `protobuf:"varint,21,opt,name=balance,proto3" json:"balance,omitempty"`                                //Текущий незаблокированный баланс.
 }
 

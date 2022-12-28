@@ -2395,7 +2395,7 @@ type GetCandlesRequest struct {
 	From         *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`                                                                    //Начало запрашиваемого периода в часовом поясе UTC.
 	To           *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=to,proto3" json:"to,omitempty"`                                                                        //Окончание запрашиваемого периода в часовом поясе UTC.
 	Interval     CandleInterval         `protobuf:"varint,4,opt,name=interval,proto3,enum=tinkoff.public.invest.api.contract.v1.CandleInterval" json:"interval,omitempty"` //Интервал запрошенных свечей.
-	InstrumentId string                 `protobuf:"bytes,5,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"`                                //Идентификатор инструмента, принимает значение figi или instrument_uid
+	InstrumentId string                 `protobuf:"bytes,5,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"`                                //Идентификатор инструмента, принимает значение figi или instrument_uid.
 }
 
 func (x *GetCandlesRequest) Reset() {
@@ -2616,7 +2616,7 @@ type GetLastPricesRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	Figi         []string `protobuf:"bytes,1,rep,name=figi,proto3" json:"figi,omitempty"`                                     //Массив figi-идентификаторов инструментов.
-	InstrumentId []string `protobuf:"bytes,2,rep,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"` //Массив идентификаторов инструмента, принимает значения figi или instrument_uid
+	InstrumentId []string `protobuf:"bytes,2,rep,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"` //Массив идентификаторов инструмента, принимает значения figi или instrument_uid.
 }
 
 func (x *GetLastPricesRequest) Reset() {
@@ -2793,7 +2793,7 @@ type GetOrderBookRequest struct {
 
 	Figi         string `protobuf:"bytes,1,opt,name=figi,proto3" json:"figi,omitempty"`                                     //Figi-идентификатор инструмента.
 	Depth        int32  `protobuf:"varint,2,opt,name=depth,proto3" json:"depth,omitempty"`                                  //Глубина стакана.
-	InstrumentId string `protobuf:"bytes,3,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"` //Идентификатор инструмента, принимает значение figi или instrument_uid
+	InstrumentId string `protobuf:"bytes,3,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"` //Идентификатор инструмента, принимает значение figi или instrument_uid.
 }
 
 func (x *GetOrderBookRequest) Reset() {
@@ -2866,7 +2866,7 @@ type GetOrderBookResponse struct {
 	LastPriceTs   *timestamppb.Timestamp `protobuf:"bytes,21,opt,name=last_price_ts,json=lastPriceTs,proto3" json:"last_price_ts,omitempty"`    //Время получения цены последней сделки.
 	ClosePriceTs  *timestamppb.Timestamp `protobuf:"bytes,22,opt,name=close_price_ts,json=closePriceTs,proto3" json:"close_price_ts,omitempty"` //Время получения цены закрытия.
 	OrderbookTs   *timestamppb.Timestamp `protobuf:"bytes,23,opt,name=orderbook_ts,json=orderbookTs,proto3" json:"orderbook_ts,omitempty"`      //Время формирования стакана на бирже.
-	InstrumentUid string                 `protobuf:"bytes,9,opt,name=instrument_uid,json=instrumentUid,proto3" json:"instrument_uid,omitempty"` //Uid инструмента
+	InstrumentUid string                 `protobuf:"bytes,9,opt,name=instrument_uid,json=instrumentUid,proto3" json:"instrument_uid,omitempty"` //Uid инструмента.
 }
 
 func (x *GetOrderBookResponse) Reset() {
@@ -2992,7 +2992,7 @@ type GetTradingStatusRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	Figi         string `protobuf:"bytes,1,opt,name=figi,proto3" json:"figi,omitempty"`                                     //Идентификатор инструмента.
-	InstrumentId string `protobuf:"bytes,2,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"` //Идентификатор инструмента, принимает значение figi или instrument_uid
+	InstrumentId string `protobuf:"bytes,2,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"` //Идентификатор инструмента, принимает значение figi или instrument_uid.
 }
 
 func (x *GetTradingStatusRequest) Reset() {
@@ -3052,7 +3052,7 @@ type GetTradingStatusResponse struct {
 	LimitOrderAvailableFlag  bool                  `protobuf:"varint,3,opt,name=limit_order_available_flag,json=limitOrderAvailableFlag,proto3" json:"limit_order_available_flag,omitempty"`                                //Признак доступности выставления лимитной заявки по инструменту.
 	MarketOrderAvailableFlag bool                  `protobuf:"varint,4,opt,name=market_order_available_flag,json=marketOrderAvailableFlag,proto3" json:"market_order_available_flag,omitempty"`                             //Признак доступности выставления рыночной заявки по инструменту.
 	ApiTradeAvailableFlag    bool                  `protobuf:"varint,5,opt,name=api_trade_available_flag,json=apiTradeAvailableFlag,proto3" json:"api_trade_available_flag,omitempty"`                                      //Признак доступности торгов через API.
-	InstrumentUid            string                `protobuf:"bytes,6,opt,name=instrument_uid,json=instrumentUid,proto3" json:"instrument_uid,omitempty"`                                                                   //Uid инструмента
+	InstrumentUid            string                `protobuf:"bytes,6,opt,name=instrument_uid,json=instrumentUid,proto3" json:"instrument_uid,omitempty"`                                                                   //Uid инструмента.
 }
 
 func (x *GetTradingStatusResponse) Reset() {
@@ -3135,10 +3135,10 @@ type GetLastTradesRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Figi         string                 `protobuf:"bytes,1,opt,name=figi,proto3" json:"figi,omitempty"`                                     //Figi-идентификатор инструмента
+	Figi         string                 `protobuf:"bytes,1,opt,name=figi,proto3" json:"figi,omitempty"`                                     //Figi-идентификатор инструмента.
 	From         *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`                                     //Начало запрашиваемого периода в часовом поясе UTC.
 	To           *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=to,proto3" json:"to,omitempty"`                                         //Окончание запрашиваемого периода в часовом поясе UTC.
-	InstrumentId string                 `protobuf:"bytes,4,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"` //Идентификатор инструмента, принимает значение figi или instrument_uid
+	InstrumentId string                 `protobuf:"bytes,4,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"` //Идентификатор инструмента, принимает значение figi или instrument_uid.
 }
 
 func (x *GetLastTradesRequest) Reset() {
@@ -3207,7 +3207,7 @@ type GetLastTradesResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Trades []*Trade `protobuf:"bytes,1,rep,name=trades,proto3" json:"trades,omitempty"` //Массив сделок
+	Trades []*Trade `protobuf:"bytes,1,rep,name=trades,proto3" json:"trades,omitempty"` //Массив сделок.
 }
 
 func (x *GetLastTradesResponse) Reset() {
@@ -3342,7 +3342,7 @@ type InstrumentClosePriceRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	InstrumentId string `protobuf:"bytes,1,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"` //Идентификатор инструмента, принимает значение figi или instrument_uid
+	InstrumentId string `protobuf:"bytes,1,opt,name=instrument_id,json=instrumentId,proto3" json:"instrument_id,omitempty"` //Идентификатор инструмента, принимает значение figi или instrument_uid.
 }
 
 func (x *InstrumentClosePriceRequest) Reset() {
