@@ -8,7 +8,7 @@ import (
 	investapi "github.com/tinkoff/invest-api-go-sdk"
 )
 
-//пример работает для "боевого" токена (можно read-only) для клиентов с минимум одним открытым брокерским счетов
+// пример работает для "боевого" токена (можно read-only) для клиентов с минимум одним открытым брокерским счетов
 const (
 	token = "t.gXvyo..." //вставьте Ваш токен
 )
@@ -26,7 +26,7 @@ func main() {
 		log.Fatalf("Невозможно получить список акций, ошибка - %s", err)
 	}
 
-	start, _ := time.Parse("2006-01-02", "2022-01-01")
+	start, _ := time.Parse("2006-01-02", "2023-01-01")
 	to := time.Now()
 
 	// печатаем последнии цены по всем бумагам:
@@ -87,16 +87,17 @@ func main() {
 	}
 	account := ""
 	for i := range accounts {
-		if account == "" {
-			account = accounts[i].Id
+		if accounts[i].Status == investapi.AccountStatus_ACCOUNT_STATUS_CLOSED || accounts[i].Type == investapi.AccountType_ACCOUNT_TYPE_INVEST_BOX {
+			continue
 		}
+		account = accounts[i].Id
 		fmt.Printf("%v\n", accounts[i])
 	}
 
 	//Получаем список операций с 01.01.2022
 	log.Printf("Получаем список операций по сч %s... \n", account)
 
-	start, _ = time.Parse("2006-01-02", "2022-11-10")
+	start, _ = time.Parse("2006-01-02", "2022-11-01")
 	to = time.Now()
 	operations, err := GetOperations(account, start, to, "")
 	if err != nil {

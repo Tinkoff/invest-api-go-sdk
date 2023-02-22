@@ -180,7 +180,7 @@ type PostStopOrderRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Figi           string                  `protobuf:"bytes,1,opt,name=figi,proto3" json:"figi,omitempty"`                                                                                                               //Figi-идентификатор инструмента.
+	Figi           string                  `protobuf:"bytes,1,opt,name=figi,proto3" json:"figi,omitempty"`                                                                                                               //Deprecated Figi-идентификатор инструмента. Необходимо использовать instrument_id.
 	Quantity       int64                   `protobuf:"varint,2,opt,name=quantity,proto3" json:"quantity,omitempty"`                                                                                                      //Количество лотов.
 	Price          *Quotation              `protobuf:"bytes,3,opt,name=price,proto3" json:"price,omitempty"`                                                                                                             //Цена за 1 инструмент. Для получения стоимости лота требуется умножить на лотность инструмента.
 	StopPrice      *Quotation              `protobuf:"bytes,4,opt,name=stop_price,json=stopPrice,proto3" json:"stop_price,omitempty"`                                                                                    //Стоп-цена заявки за 1 инструмент. Для получения стоимости лота требуется умножить на лотность инструмента.

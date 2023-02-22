@@ -30,6 +30,8 @@ type MarketDataServiceClient interface {
 	GetOrderBook(ctx context.Context, in *GetOrderBookRequest, opts ...grpc.CallOption) (*GetOrderBookResponse, error)
 	//Метод запроса статуса торгов по инструментам.
 	GetTradingStatus(ctx context.Context, in *GetTradingStatusRequest, opts ...grpc.CallOption) (*GetTradingStatusResponse, error)
+	//Метод запроса статуса торгов по инструментам.
+	GetTradingStatuses(ctx context.Context, in *GetTradingStatusesRequest, opts ...grpc.CallOption) (*GetTradingStatusesResponse, error)
 	//Метод запроса обезличенных сделок за последний час.
 	GetLastTrades(ctx context.Context, in *GetLastTradesRequest, opts ...grpc.CallOption) (*GetLastTradesResponse, error)
 	//Метод запроса цен закрытия торговой сессии по инструментам.
@@ -80,6 +82,15 @@ func (c *marketDataServiceClient) GetTradingStatus(ctx context.Context, in *GetT
 	return out, nil
 }
 
+func (c *marketDataServiceClient) GetTradingStatuses(ctx context.Context, in *GetTradingStatusesRequest, opts ...grpc.CallOption) (*GetTradingStatusesResponse, error) {
+	out := new(GetTradingStatusesResponse)
+	err := c.cc.Invoke(ctx, "/tinkoff.public.invest.api.contract.v1.MarketDataService/GetTradingStatuses", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *marketDataServiceClient) GetLastTrades(ctx context.Context, in *GetLastTradesRequest, opts ...grpc.CallOption) (*GetLastTradesResponse, error) {
 	out := new(GetLastTradesResponse)
 	err := c.cc.Invoke(ctx, "/tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastTrades", in, out, opts...)
@@ -110,6 +121,8 @@ type MarketDataServiceServer interface {
 	GetOrderBook(context.Context, *GetOrderBookRequest) (*GetOrderBookResponse, error)
 	//Метод запроса статуса торгов по инструментам.
 	GetTradingStatus(context.Context, *GetTradingStatusRequest) (*GetTradingStatusResponse, error)
+	//Метод запроса статуса торгов по инструментам.
+	GetTradingStatuses(context.Context, *GetTradingStatusesRequest) (*GetTradingStatusesResponse, error)
 	//Метод запроса обезличенных сделок за последний час.
 	GetLastTrades(context.Context, *GetLastTradesRequest) (*GetLastTradesResponse, error)
 	//Метод запроса цен закрытия торговой сессии по инструментам.
@@ -132,6 +145,9 @@ func (UnimplementedMarketDataServiceServer) GetOrderBook(context.Context, *GetOr
 }
 func (UnimplementedMarketDataServiceServer) GetTradingStatus(context.Context, *GetTradingStatusRequest) (*GetTradingStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTradingStatus not implemented")
+}
+func (UnimplementedMarketDataServiceServer) GetTradingStatuses(context.Context, *GetTradingStatusesRequest) (*GetTradingStatusesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTradingStatuses not implemented")
 }
 func (UnimplementedMarketDataServiceServer) GetLastTrades(context.Context, *GetLastTradesRequest) (*GetLastTradesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetLastTrades not implemented")
@@ -224,6 +240,24 @@ func _MarketDataService_GetTradingStatus_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MarketDataService_GetTradingStatuses_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTradingStatusesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MarketDataServiceServer).GetTradingStatuses(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tinkoff.public.invest.api.contract.v1.MarketDataService/GetTradingStatuses",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MarketDataServiceServer).GetTradingStatuses(ctx, req.(*GetTradingStatusesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MarketDataService_GetLastTrades_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetLastTradesRequest)
 	if err := dec(in); err != nil {
@@ -282,6 +316,10 @@ var MarketDataService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetTradingStatus",
 			Handler:    _MarketDataService_GetTradingStatus_Handler,
+		},
+		{
+			MethodName: "GetTradingStatuses",
+			Handler:    _MarketDataService_GetTradingStatuses_Handler,
 		},
 		{
 			MethodName: "GetLastTrades",

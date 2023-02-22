@@ -533,7 +533,7 @@ type PostOrderRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Figi         string         `protobuf:"bytes,1,opt,name=figi,proto3" json:"figi,omitempty"`                                                                                  //Figi-идентификатор инструмента.
+	Figi         string         `protobuf:"bytes,1,opt,name=figi,proto3" json:"figi,omitempty"`                                                                                  //Deprecated Figi-идентификатор инструмента. Необходимо использовать instrument_id.
 	Quantity     int64          `protobuf:"varint,2,opt,name=quantity,proto3" json:"quantity,omitempty"`                                                                         //Количество лотов.
 	Price        *Quotation     `protobuf:"bytes,3,opt,name=price,proto3" json:"price,omitempty"`                                                                                //Цена за 1 инструмент. Для получения стоимости лота требуется умножить на лотность инструмента. Игнорируется для рыночных поручений.
 	Direction    OrderDirection `protobuf:"varint,4,opt,name=direction,proto3,enum=tinkoff.public.invest.api.contract.v1.OrderDirection" json:"direction,omitempty"`             //Направление операции.
