@@ -20,7 +20,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Для примера передадим к качестве логгера uber zap
+	// Для примера передадим в качестве логгера uber zap
 	prod, err := zap.NewProduction()
 	defer func() {
 		err := prod.Sync()
@@ -34,7 +34,7 @@ func main() {
 	}
 	logger := prod.Sugar()
 
-	// Создаем клиеинта для апи инвестиций, он поддерживает grpc соединение
+	// Создаем клиента для апи инвестиций, он поддерживает grpc соединение
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
 		logger.Infof("Client creating error %v", err.Error())

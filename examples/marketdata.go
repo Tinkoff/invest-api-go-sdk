@@ -7,9 +7,6 @@ import (
 	pb "github.com/Tinkoff/invest-api-go-sdk/proto"
 	"go.uber.org/zap"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 )
 
@@ -23,11 +20,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	signals := make(chan os.Signal)
-	defer close(signals)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
-
-	// Для примера передадим к качестве логгера uber zap
+	// Для примера передадим в качестве логгера uber zap
 	prod, err := zap.NewProduction()
 	defer func() {
 		err := prod.Sync()
@@ -41,7 +34,7 @@ func main() {
 	}
 	logger := prod.Sugar()
 
-	// Создаем клиеинта для апи инвестиций, он поддерживает grpc соединение
+	// Создаем клиента для апи инвестиций, он поддерживает grpc соединение
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
 		logger.Infof("Client creating error %v", err.Error())
@@ -53,7 +46,7 @@ func main() {
 			logger.Error("client shutdown error %v", err.Error())
 		}
 	}()
-	// создаем клинета для сервиса маркетдаты
+	// создаем клиента для сервиса маркетдаты
 	MarketDataService := client.NewMarketDataServiceClient()
 	// три российские акции
 	instruments := []string{"BBG004730N88", "BBG00475KKY8", "BBG004RVFCY3"}

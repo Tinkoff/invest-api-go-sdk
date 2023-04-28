@@ -54,16 +54,16 @@ func main() {
 	// для синхронизации всех горутин
 	wg := &sync.WaitGroup{}
 
-	OSClient := client.NewOperationsStreamClient()
+	operationsStreamClient := client.NewOperationsStreamClient()
 
-	positionsStream, err := OSClient.PositionsStream([]string{config.AccountId})
+	positionsStream, err := operationsStreamClient.PositionsStream([]string{config.AccountId})
 	if err != nil {
-		client.Logger.Errorf(err.Error())
+		logger.Errorf(err.Error())
 	}
 
-	portfolioStream, err := OSClient.PortfolioStream([]string{config.AccountId})
+	portfolioStream, err := operationsStreamClient.PortfolioStream([]string{config.AccountId})
 	if err != nil {
-		client.Logger.Errorf(err.Error())
+		logger.Errorf(err.Error())
 	}
 	// получаем каналы для чтения
 	positions := positionsStream.Positions()
@@ -95,7 +95,7 @@ func main() {
 		defer wg.Done()
 		err := positionsStream.Listen()
 		if err != nil {
-			client.Logger.Errorf(err.Error())
+			logger.Errorf(err.Error())
 		}
 	}()
 
@@ -104,7 +104,7 @@ func main() {
 		defer wg.Done()
 		err := portfolioStream.Listen()
 		if err != nil {
-			client.Logger.Errorf(err.Error())
+			logger.Errorf(err.Error())
 		}
 	}()
 
