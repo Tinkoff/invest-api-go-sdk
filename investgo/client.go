@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	pb "github.com/Tinkoff/invest-api-go-sdk/proto"
+	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

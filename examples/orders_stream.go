@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/Tinkoff/invest-api-go-sdk/investgo"
+	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	"go.uber.org/zap"
 	"log"
 	"os"

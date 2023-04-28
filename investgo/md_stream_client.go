@@ -2,7 +2,7 @@ package investgo
 
 import (
 	"context"
-	pb "github.com/Tinkoff/invest-api-go-sdk/proto"
+	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"google.golang.org/grpc"
 )
 

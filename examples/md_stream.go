@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/Tinkoff/invest-api-go-sdk/investgo"
-	pb "github.com/Tinkoff/invest-api-go-sdk/proto"
+	"github.com/tinkoff/invest-api-go-sdk/investgo"
+	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"go.uber.org/zap"
 	"log"
 	"os"
@@ -96,6 +96,9 @@ func main() {
 		defer wg.Done()
 		for {
 			select {
+			case <-ctx.Done():
+				logger.Infof("Stop listening first channels")
+				return
 			case candle, ok := <-candleChan:
 				if !ok {
 					return
@@ -108,9 +111,6 @@ func main() {
 				}
 				// клиентская логика обработки...
 				fmt.Println("trade price = ", trade.GetPrice().ToFloat())
-			case <-ctx.Done():
-				logger.Infof("Stop listening first channels")
-				return
 			}
 		}
 	}(ctx)
@@ -145,6 +145,9 @@ func main() {
 		defer wg.Done()
 		for {
 			select {
+			case <-ctx.Done():
+				logger.Infof("Stop listening second channels")
+				return
 			case ob, ok := <-obChan:
 				if !ok {
 					return
@@ -155,9 +158,6 @@ func main() {
 					return
 				}
 				fmt.Println("last price  = ", lp.GetPrice().ToFloat())
-			case <-ctx.Done():
-				logger.Infof("Stop listening second channels")
-				return
 			}
 		}
 	}(ctx)
