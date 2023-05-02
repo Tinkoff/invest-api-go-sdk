@@ -1,0 +1,4 @@
+AccountId: ""
+APIToken: <your_token>
+EndPoint: sandbox-invest-public-api.tinkoff.ru:443
+AppName: invest-api-go-sdk
