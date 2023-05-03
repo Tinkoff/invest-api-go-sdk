@@ -2,9 +2,11 @@ package investgo
 
 import (
 	"context"
+	"fmt"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"os"
 	"time"
 )
 
@@ -129,4 +131,81 @@ func (md *MarketDataServiceClient) GetClosePrices(instrumentIds []string) (*GetC
 		GetClosePricesResponse: resp,
 		Header:                 header,
 	}, err
+}
+
+// by default 1 hour
+func selectDuration(interval pb.CandleInterval) time.Duration {
+	var duration time.Duration
+	switch interval {
+	case pb.CandleInterval_CANDLE_INTERVAL_1_MIN, pb.CandleInterval_CANDLE_INTERVAL_2_MIN, pb.CandleInterval_CANDLE_INTERVAL_3_MIN:
+		duration = time.Hour * 24
+	case pb.CandleInterval_CANDLE_INTERVAL_5_MIN, pb.CandleInterval_CANDLE_INTERVAL_10_MIN, pb.CandleInterval_CANDLE_INTERVAL_15_MIN:
+		duration = time.Hour * 24
+	case pb.CandleInterval_CANDLE_INTERVAL_30_MIN:
+		duration = time.Hour * 48
+	case pb.CandleInterval_CANDLE_INTERVAL_HOUR:
+		duration = time.Hour * 24 * 7
+	case pb.CandleInterval_CANDLE_INTERVAL_2_HOUR, pb.CandleInterval_CANDLE_INTERVAL_4_HOUR:
+		duration = time.Hour * 24 * 30
+	case pb.CandleInterval_CANDLE_INTERVAL_DAY:
+		duration = time.Hour * 24 * 360
+	case pb.CandleInterval_CANDLE_INTERVAL_WEEK:
+		duration = time.Hour * 24 * 360 * 2
+	case pb.CandleInterval_CANDLE_INTERVAL_MONTH:
+		duration = time.Hour * 24 * 360 * 2
+	case pb.CandleInterval_CANDLE_INTERVAL_UNSPECIFIED:
+		duration = time.Hour * 24 * 7
+		interval = pb.CandleInterval_CANDLE_INTERVAL_HOUR
+	}
+	return duration
+}
+
+func (md *MarketDataServiceClient) GetHistoricCandles(instruments []string, interval pb.CandleInterval, from, to time.Time) (map[string][]*pb.HistoricCandle, error) {
+	duration := selectDuration(interval)
+	// если запрашиваемый интервал больше чем возможный, то нужно разделить его на несколько
+	intervals := make([]time.Time, 0)
+	if to.Sub(from) > duration {
+		lowTime := to
+		for lowTime.After(from) || lowTime.Equal(from) {
+			intervals = append(intervals, lowTime)
+			lowTime = lowTime.Add(-duration)
+		}
+		intervals = append(intervals, from)
+	} else {
+		intervals = []time.Time{from, to}
+	}
+	// intervals = {to, ... , from}
+
+	candles := make(map[string][]*pb.HistoricCandle)
+
+	for _, instrument := range instruments {
+		// идем по интервалам
+		for i := len(intervals) - 1; i > 0; i-- {
+			resp, err := md.GetCandles(instrument, interval, intervals[i], intervals[i-1])
+			if err != nil {
+				return make(map[string][]*pb.HistoricCandle), err
+			}
+			candles[instrument] = append(candles[instrument], resp.GetCandles()...)
+		}
+	}
+	return candles, nil
+}
+
+// GetHistoricCandlesToFile - Метод записи исторических свечей в формате CSV instrumentId;time;open;close;high;low;volume
+func (md *MarketDataServiceClient) GetHistoricCandlesToFile(instruments []string, interval pb.CandleInterval, from, to time.Time, filename string) error {
+	candles, err := md.GetHistoricCandles(instruments, interval, from, to)
+	if err != nil {
+		return err
+	}
+	file, err := os.Create(fmt.Sprintf("%v.csv", filename))
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	for id, candles := range candles {
+		for _, candle := range candles {
+			fmt.Fprintf(file, "%v;%v\n", id, candle.ToCSV())
+		}
+	}
+	return nil
 }

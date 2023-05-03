@@ -10,5 +10,6 @@
 
 config.env
 config.yaml
+desert.go
 main
 /vendor/
