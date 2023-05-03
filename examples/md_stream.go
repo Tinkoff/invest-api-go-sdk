@@ -122,7 +122,7 @@ func main() {
 	}
 
 	secondInstrumetsGroup := []string{"BBG004S681W1", "BBG004731354"}
-	obChan, err := secondMDStream.SubscribeOrderBook(secondInstrumetsGroup, 2)
+	obChan, err := secondMDStream.SubscribeOrderBook(secondInstrumetsGroup, 10)
 	if err != nil {
 		logger.Errorf(err.Error())
 	}
