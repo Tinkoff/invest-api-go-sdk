@@ -155,16 +155,21 @@ func (md *MarketDataServiceClient) GetHistoricCandles(req *GetHistoricCandlesReq
 	// intervals = {to, ... , from}
 
 	candles := make([]*pb.HistoricCandle, 0)
-
+	requests := 0
 	for i := len(intervals) - 1; i > 0; i-- {
 		// идем с конца слайса так как там более раннее время
 		// from - i элемент
 		// to - i-1 элемент
+		requests++
 		resp, err := md.GetCandles(req.Instrument, req.Interval, intervals[i], intervals[i-1])
 		if err != nil {
 			return nil, err
 		}
 		candles = append(candles, resp.GetCandles()...)
+		if requests == 299 {
+			time.Sleep(time.Minute)
+			requests = 0
+		}
 	}
 
 	if req.File {
