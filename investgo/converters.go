@@ -2,13 +2,11 @@ package investgo
 
 import (
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"time"
 )
 
 // TimeToTimestamp - convert time.Time to *timestamp.Timestamp
 func TimeToTimestamp(t time.Time) *timestamp.Timestamp {
-	return &timestamp.Timestamp{
-		Seconds: t.Unix(),
-		Nanos:   0,
-	}
+	return timestamppb.New(t)
 }

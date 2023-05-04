@@ -5,7 +5,7 @@ import (
 	"math"
 )
 
-// ToFloat -  get value as float64 number
+// ToFloat - get value as float64 number
 func (q *Quotation) ToFloat() float64 {
 	if q != nil {
 		return float64(q.Units) + float64(q.Nano)*math.Pow10(-9)
@@ -23,6 +23,6 @@ func (mv *MoneyValue) ToFloat() float64 {
 
 // ToCSV - return historic candle in csv format (time in unix): time;open;close;high;low;volume
 func (hc *HistoricCandle) ToCSV() string {
-	return fmt.Sprintf("%v;%v;%v;%v;%v;%v", hc.GetTime().AsTime().Unix(), hc.GetOpen().ToFloat(),
+	return fmt.Sprintf("%v;%.9f;%.9f;%.9f;%.9f;%v", hc.GetTime().AsTime().Unix(), hc.GetOpen().ToFloat(),
 		hc.GetClose().ToFloat(), hc.GetHigh().ToFloat(), hc.GetLow().ToFloat(), hc.GetVolume())
 }
