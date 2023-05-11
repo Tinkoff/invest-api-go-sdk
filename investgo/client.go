@@ -5,15 +5,20 @@ import (
 	"crypto/tls"
 	"fmt"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"github.com/tinkoff/invest-api-go-sdk/retry"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/oauth"
 	"google.golang.org/grpc/metadata"
 	"strings"
+	"time"
 )
 
 type ctxKey string
+
+const MAX_RETRIES = 6
 
 type Client struct {
 	conn   *grpc.ClientConn
@@ -33,9 +38,35 @@ func NewClient(ctx context.Context, cnf Config, l Logger) (*Client, error) {
 	ctx = context.WithValue(ctx, authKey, fmt.Sprintf("Bearer %s", cnf.Token))
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-app-name", cnf.AppName)
 
+	Opts := []retry.CallOption{
+		retry.WithCodes(codes.Unavailable, codes.Internal),
+		retry.WithBackoff(retry.BackoffLinear(500 * time.Millisecond)),
+		retry.WithMax(MAX_RETRIES),
+	}
+
+	// при исчерпывании лимита запросов в минуту, нужно ждать дольше
+	exhaustedOpts := []retry.CallOption{
+		retry.WithCodes(codes.ResourceExhausted),
+		retry.WithBackoff(retry.BackoffExponential(2 * time.Second)),
+		retry.WithMax(MAX_RETRIES),
+	}
+
+	streamInterceptors := []grpc.StreamClientInterceptor{
+		retry.StreamClientInterceptor(Opts...),
+	}
+
+	unaryInterceptors := []grpc.UnaryClientInterceptor{
+		retry.UnaryClientInterceptor(Opts...),
+		retry.UnaryClientInterceptor(exhaustedOpts...),
+	}
+
 	conn, err := grpc.Dial(cnf.EndPoint,
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})),
-		grpc.WithPerRPCCredentials(oauth.TokenSource{TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cnf.Token})}))
+		grpc.WithPerRPCCredentials(oauth.TokenSource{
+			TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cnf.Token}),
+		}),
+		grpc.WithChainUnaryInterceptor(unaryInterceptors...),
+		grpc.WithChainStreamInterceptor(streamInterceptors...))
 	if err != nil {
 		return nil, err
 	}
