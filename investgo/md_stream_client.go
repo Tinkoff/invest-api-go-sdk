@@ -41,12 +41,3 @@ func (c *MDStreamClient) MarketDataStream() (*MDStream, error) {
 		},
 	}, nil
 }
-
-// grpc.WaitForReady(false)
-//func (c *MDStreamClient) pbStreamH() (pb.MarketDataStreamService_MarketDataStreamClient, error) {
-//	stream, err := c.pbClient.MarketDataStream(c.ctx, grpc.WaitForReady(false))
-//	if err != nil {
-//		return nil, err
-//	}
-//	return stream, nil
-//}

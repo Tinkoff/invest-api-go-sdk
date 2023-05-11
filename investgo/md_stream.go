@@ -254,13 +254,6 @@ func (mds *MDStream) Listen() error {
 				case status.Code(err) == codes.Canceled:
 					mds.mdsClient.logger.Infof("Stop listening")
 					return nil
-				case status.Code(err) == codes.Unavailable:
-					return err
-					// mds.mdsClient.Logger.Infof("Unavailable")
-					//err := mds.retryH()
-					//if err != nil {
-					//	return err
-					//}
 				default:
 					return err
 				}
@@ -271,20 +264,6 @@ func (mds *MDStream) Listen() error {
 		}
 	}
 }
-
-//func (mds *MDStream) retryH() error {
-//	newStream, err := mds.mdsClient.pbStreamH()
-//	if err != nil {
-//		return err
-//	}
-//	mds.stream = newStream
-//	mds.mdsClient.Logger.Infof(mds.mdsClient.conn.GetState().String())
-//	err = mds.SubscribeAll()
-//	if err != nil {
-//		return err
-//	}
-//	return nil
-//}
 
 func (mds *MDStream) sendRespToChannel(resp *pb.MarketDataResponse) {
 	switch resp.GetPayload().(type) {

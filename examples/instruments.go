@@ -130,19 +130,6 @@ func main() {
 		}
 	}
 
-	optionsResp, err := instrumentsService.Options(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
-	if err != nil {
-		logger.Error(err.Error())
-	} else {
-		options := optionsResp.GetInstruments()
-		for i, op := range options {
-			fmt.Printf("option %v, ticker = %v, classcode = %v\n", i, op.GetTicker(), op.GetClassCode())
-			if i > 4 {
-				break
-			}
-		}
-	}
-
 	optionByTickerResp, err := instrumentsService.OptionByTicker("TT440CE3B", "SPBOPT")
 	if err != nil {
 		logger.Error(err.Error())
@@ -151,7 +138,7 @@ func main() {
 		fmt.Printf("option name = %v, asset size = %v\n", option.GetName(), option.GetBasicAssetSize().ToFloat())
 	}
 
-	dividentsResp, err := instrumentsService.GetDividents("6afa6f80-03a7-4d83-9cf0-c19d7d021f76", time.Now(), time.Now().Add(1000*time.Hour))
+	dividentsResp, err := instrumentsService.GetDividents("BBG004730N88", time.Now(), time.Now().Add(1000*time.Hour))
 	if err != nil {
 		logger.Error(err.Error())
 		fmt.Printf("header msg = %v\n", dividentsResp.GetHeader().Get("message"))

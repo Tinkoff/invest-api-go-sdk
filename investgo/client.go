@@ -33,21 +33,9 @@ func NewClient(ctx context.Context, cnf Config, l Logger) (*Client, error) {
 	ctx = context.WithValue(ctx, authKey, fmt.Sprintf("Bearer %s", cnf.Token))
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-app-name", cnf.AppName)
 
-	var retryPolicy = `{
-		"methodConfig": [{
-		  "waitForReady": true,
-		  "retryPolicy": {
-			  "MaxAttempts": 5,
-			  "InitialBackoff": "1s",
-			  "MaxBackoff": "1s",
-			  "BackoffMultiplier": 1.0,
-			  "RetryableStatusCodes": [ "UNAVAILABLE" ]
-		  }
-		}]}`
 	conn, err := grpc.Dial(cnf.EndPoint,
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})),
-		grpc.WithPerRPCCredentials(oauth.TokenSource{TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cnf.Token})}),
-		grpc.WithDefaultServiceConfig(retryPolicy))
+		grpc.WithPerRPCCredentials(oauth.TokenSource{TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cnf.Token})}))
 	if err != nil {
 		return nil, err
 	}
