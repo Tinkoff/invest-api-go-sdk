@@ -585,3 +585,12 @@ type SandboxPayInRequest struct {
 	Unit      int64
 	Nano      int32
 }
+
+type GetHistoricCandlesRequest struct {
+	Instrument string
+	Interval   pb.CandleInterval
+	From       time.Time
+	To         time.Time
+	File       bool
+	FileName   string
+}

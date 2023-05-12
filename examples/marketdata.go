@@ -107,5 +107,50 @@ func main() {
 			fmt.Printf("close price = %v\n", price.GetPrice().ToFloat())
 		}
 	}
+	// Работы с историческими данными
+
+	// минутные свечи TCSG за последние двое суток
+	candles, err := MarketDataService.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
+		Instrument: "6afa6f80-03a7-4d83-9cf0-c19d7d021f76",
+		Interval:   pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
+		From:       time.Now().Add(-48 * time.Hour),
+		To:         time.Now(),
+		File:       false,
+		FileName:   "",
+	})
+	if err != nil {
+		logger.Errorf(err.Error())
+	} else {
+		for i, candle := range candles {
+			fmt.Printf("candle %v open = %v\n", i, candle.GetOpen().ToFloat())
+		}
+	}
+	// можно выставить File = true, и данные запишутся в csv файл
+
+	// все дневные свечи сбера с 2000 года
+	_, err = MarketDataService.GetAllHistoricCandles(&investgo.GetHistoricCandlesRequest{
+		Instrument: "BBG004730N88",
+		Interval:   pb.CandleInterval_CANDLE_INTERVAL_DAY,
+		From:       time.Time{},
+		To:         time.Time{},
+		File:       true,
+		FileName:   "all_sber_candles",
+	})
+	if err != nil {
+		logger.Errorf(err.Error())
+	}
+
+	// минутные свечи сбера за последние 6 месяцев
+	_, err = MarketDataService.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
+		Instrument: "BBG004730N88",
+		Interval:   pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
+		From:       time.Now().Add(-6 * 30 * 24 * time.Hour),
+		To:         time.Now(),
+		File:       true,
+		FileName:   "",
+	})
+	if err != nil {
+		logger.Errorf(err.Error())
+	}
 
 }

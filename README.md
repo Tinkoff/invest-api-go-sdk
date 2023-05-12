@@ -32,6 +32,7 @@ SDK предназначен для упрощения работы с API Ти�
  * orders.go - примеры работы с сервисом торговых поручений
  * stop_orders - примеры работы с сервисом стоп-заявок
  * users.go - примеры работы с сервисом счетов
+ * sandbox.go - пример работы с песочницей
 
 #### Пример использования MarketDataStreamService
 ```go
@@ -56,13 +57,13 @@ func main() {
 	// создаем клиента для апи инвестиций, он поддерживает grpc соединение
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		logger.Infof("Client creating error %v", err.Error())
+		logger.Errorf("Client creating error %v", err.Error())
 	}
 	defer func() {
 		logger.Infof("Closing client connection")
 		err := client.Stop()
 		if err != nil {
-			logger.Error("client shutdown error %v", err.Error())
+			logger.Errorf("client shutdown error %v", err.Error())
 		}
 	}()
 	wg := &sync.WaitGroup{}
@@ -111,6 +112,9 @@ func main() {
 		defer wg.Done()
 		for {
 			select {
+			case <-ctx.Done():
+				logger.Infof("Stop listening first channels")
+				return
 			case candle, ok := <-candleChan:
 				if !ok {
 					return
@@ -123,9 +127,6 @@ func main() {
 				}
 				// клиентская логика обработки...
 				fmt.Println("trade price = ", trade.GetPrice().ToFloat())
-			case <-ctx.Done():
-				logger.Infof("Stop listening first channels")
-				return
 			}
 		}
 	}(ctx)

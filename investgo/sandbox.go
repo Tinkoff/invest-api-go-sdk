@@ -235,7 +235,7 @@ func (s *SandboxServiceClient) GetSandboxWithdrawLimits(accountId string) (*With
 }
 
 // SandboxPayIn - Метод пополнения счёта в песочнице
-func (s *SandboxServiceClient) SandboxPayIn(req SandboxPayInRequest) (*SandboxPayInResponse, error) {
+func (s *SandboxServiceClient) SandboxPayIn(req *SandboxPayInRequest) (*SandboxPayInResponse, error) {
 	var header, trailer metadata.MD
 	resp, err := s.pbClient.SandboxPayIn(s.ctx, &pb.SandboxPayInRequest{
 		AccountId: req.AccountId,

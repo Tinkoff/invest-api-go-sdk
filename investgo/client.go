@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/oauth"
 	"google.golang.org/grpc/metadata"
+	"strings"
 )
 
 type ctxKey string
@@ -23,6 +24,11 @@ type Client struct {
 
 // NewClient - создание клиента для API Тинькофф инвестиций
 func NewClient(ctx context.Context, cnf Config, l Logger) (*Client, error) {
+	// default appName = invest-api-go-sdk
+	if strings.Compare(cnf.AppName, "") == 0 {
+		cnf.AppName = "invest-api-go-sdk"
+	}
+
 	var authKey ctxKey = "authorization"
 	ctx = context.WithValue(ctx, authKey, fmt.Sprintf("Bearer %s", cnf.Token))
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-app-name", cnf.AppName)
@@ -38,8 +44,7 @@ func NewClient(ctx context.Context, cnf Config, l Logger) (*Client, error) {
 			  "RetryableStatusCodes": [ "UNAVAILABLE" ]
 		  }
 		}]}`
-
-	conn, err := grpc.Dial(cnf.SandboxEndPoint,
+	conn, err := grpc.Dial(cnf.EndPoint,
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})),
 		grpc.WithPerRPCCredentials(oauth.TokenSource{TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cnf.Token})}),
 		grpc.WithDefaultServiceConfig(retryPolicy))

@@ -8,11 +8,10 @@ import (
 
 // Config - структура для кофигурации SDK
 type Config struct {
-	ProdEndPoint    string `yaml:"ProdEndPoint"`
-	SandboxEndPoint string `yaml:"SandboxEndPoint"`
-	Token           string `yaml:"APIToken"`
-	AppName         string `yaml:"AppName"`
-	AccountId       string `yaml:"AccountId"`
+	EndPoint  string `yaml:"EndPoint"`
+	Token     string `yaml:"APIToken"`
+	AppName   string `yaml:"AppName"`
+	AccountId string `yaml:"AccountId"`
 }
 
 func LoadConfig(filename string) (Config, error) {
