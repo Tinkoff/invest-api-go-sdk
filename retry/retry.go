@@ -5,8 +5,11 @@ package retry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -62,6 +65,76 @@ func UnaryClientInterceptor(optFuncs ...CallOption) grpc.UnaryClientInterceptor 
 			if !isRetriable(lastErr, callOpts) {
 				return lastErr
 			}
+		}
+		return lastErr
+	}
+}
+
+func durationFromTrailer(md grpcMetadata.MD) (time.Duration, error) {
+	secStrings := md.Get("x-ratelimit-reset")
+	if len(secStrings) < 1 {
+		return 0, errors.New("x-ratelimit-reset metadata len < 1")
+	}
+	sec, err := strconv.Atoi(secStrings[0])
+	if err != nil {
+		return 0, err
+	}
+	return time.Second * time.Duration(sec), nil
+}
+
+func UnaryClientInterceptorRE(optFuncs ...CallOption) grpc.UnaryClientInterceptor {
+	intOpts := reuseOrNewWithCallOptions(defaultOptions, optFuncs)
+	return func(parentCtx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		grpcOpts, retryOpts := filterCallOptions(opts)
+		callOpts := reuseOrNewWithCallOptions(intOpts, retryOpts)
+		// short circuit for simplicity, and avoiding allocations.
+		if callOpts.max == 0 {
+			return invoker(parentCtx, method, req, reply, cc, grpcOpts...)
+		}
+		var lastErr error
+
+		var trailer grpcMetadata.MD
+		grpcOpts = append(grpcOpts, grpc.Trailer(&trailer))
+
+		for attempt := uint(0); attempt < callOpts.max; attempt++ {
+			if err := waitRetryBackoff(attempt, parentCtx, callOpts); err != nil {
+				return err
+			}
+			callCtx, cancel := perCallContext(parentCtx, callOpts, attempt)
+			defer cancel() // Clean up potential resources.
+
+			lastErr = invoker(callCtx, method, req, reply, cc, grpcOpts...)
+
+			if lastErr == nil {
+				return nil
+			}
+
+			callOpts.onRetryCallback(parentCtx, attempt, lastErr)
+
+			switch {
+			case status.Code(lastErr) == codes.ResourceExhausted:
+				duration, err := durationFromTrailer(trailer)
+				log.Printf("dur = %v\n", duration.String())
+				if err != nil {
+					return err
+				}
+				retryOpts = append(retryOpts, WithBackoff(BackoffExponential(duration)))
+				callOpts = reuseOrNewWithCallOptions(intOpts, retryOpts)
+			case isContextError(lastErr):
+				if parentCtx.Err() != nil {
+					logTrace(parentCtx, "grpc_retry attempt: %d, parent context error: %v", attempt, parentCtx.Err())
+					// its the parent context deadline or cancellation.
+					return lastErr
+				} else if callOpts.perCallTimeout != 0 {
+					// We have set a perCallTimeout in the retry middleware, which would result in a context error if
+					// the deadline was exceeded, in which case try again.
+					logTrace(parentCtx, "grpc_retry attempt: %d, context error from retry call", attempt)
+					continue
+				}
+			case !isRetriable(lastErr, callOpts):
+				return lastErr
+			}
+
 		}
 		return lastErr
 	}

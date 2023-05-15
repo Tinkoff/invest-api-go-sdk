@@ -3,6 +3,7 @@ package investgo
 import (
 	"context"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"github.com/tinkoff/invest-api-go-sdk/retry"
 	"google.golang.org/grpc"
 )
 
@@ -17,13 +18,8 @@ type MDStreamClient struct {
 // MarketDataStream - метод возвращает стрим биржевой информации
 func (c *MDStreamClient) MarketDataStream() (*MDStream, error) {
 	ctx, cancel := context.WithCancel(c.ctx)
-	stream, err := c.pbClient.MarketDataStream(ctx)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	return &MDStream{
-		stream:        stream,
+	mds := &MDStream{
+		stream:        nil,
 		mdsClient:     c,
 		ctx:           ctx,
 		cancel:        cancel,
@@ -39,5 +35,13 @@ func (c *MDStreamClient) MarketDataStream() (*MDStream, error) {
 			tradingStatuses: make(map[string]struct{}, 0),
 			lastPrices:      make(map[string]struct{}, 0),
 		},
-	}, nil
+	}
+
+	stream, err := c.pbClient.MarketDataStream(ctx, retry.WithOnRetryCallback(mds.restart))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	mds.stream = stream
+	return mds, nil
 }

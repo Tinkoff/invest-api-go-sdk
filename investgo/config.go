@@ -8,10 +8,12 @@ import (
 
 // Config - структура для кофигурации SDK
 type Config struct {
-	EndPoint  string `yaml:"EndPoint"`
-	Token     string `yaml:"APIToken"`
-	AppName   string `yaml:"AppName"`
-	AccountId string `yaml:"AccountId"`
+	EndPoint                      string `yaml:"EndPoint"`
+	Token                         string `yaml:"APIToken"`
+	AppName                       string `yaml:"AppName"`
+	AccountId                     string `yaml:"AccountId"`
+	DisableResourceExhaustedRetry bool   `yaml:"DisableResourceExhaustedRetry"`
+	MaxRetries                    uint   `yaml:"MaxRetries"`
 }
 
 func LoadConfig(filename string) (Config, error) {

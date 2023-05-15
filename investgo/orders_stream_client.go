@@ -3,6 +3,7 @@ package investgo
 import (
 	"context"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"github.com/tinkoff/invest-api-go-sdk/retry"
 	"google.golang.org/grpc"
 )
 
@@ -17,18 +18,20 @@ type OrdersStreamClient struct {
 // TradesStream - Стрим сделок по запрашиваемым аккаунтам
 func (o *OrdersStreamClient) TradesStream(accounts []string) (*TradesStream, error) {
 	ctx, cancel := context.WithCancel(o.ctx)
-	stream, err := o.pbClient.TradesStream(ctx, &pb.TradesStreamRequest{
-		Accounts: accounts,
-	})
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	return &TradesStream{
-		stream:       stream,
+	ts := &TradesStream{
+		stream:       nil,
 		ordersClient: o,
 		trades:       make(chan *pb.OrderTrades),
 		ctx:          ctx,
 		cancel:       cancel,
-	}, nil
+	}
+	stream, err := o.pbClient.TradesStream(ctx, &pb.TradesStreamRequest{
+		Accounts: accounts,
+	}, retry.WithOnRetryCallback(ts.restart))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	ts.stream = stream
+	return ts, nil
 }

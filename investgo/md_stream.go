@@ -2,7 +2,9 @@ package investgo
 
 import (
 	"context"
+	"fmt"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"github.com/tinkoff/invest-api-go-sdk/retry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -244,7 +246,7 @@ func (mds *MDStream) Listen() error {
 	for {
 		select {
 		case <-mds.ctx.Done():
-			mds.mdsClient.logger.Infof("Stop listening")
+			mds.mdsClient.logger.Infof("stop listening")
 			return nil
 		default:
 			resp, err := mds.stream.Recv()
@@ -252,7 +254,7 @@ func (mds *MDStream) Listen() error {
 				// если ошибка связана с завершением контекста, обрабатываем ее
 				switch {
 				case status.Code(err) == codes.Canceled:
-					mds.mdsClient.logger.Infof("Stop listening")
+					mds.mdsClient.logger.Infof("stop listening")
 					return nil
 				default:
 					return err
@@ -364,69 +366,80 @@ func (mds *MDStream) UnSubscribeAll() error {
 	return nil
 }
 
-//func (mds *MDStream) SubscribeAll() error {
-//	ids := make([]string, 0)
-//	if len(mds.subs.candles) > 0 {
-//		intervals := make(map[pb.SubscriptionInterval][]string, 0)
-//
-//		for id, interval := range mds.subs.candles {
-//			intervals[interval] = append(intervals[interval], id)
-//			//delete(mds.subs.candles, id)
-//		}
-//		for interval, ids := range intervals {
-//			_, err := mds.SubscribeCandle(ids, interval)
-//			if err != nil {
-//				return err
-//			}
-//		}
-//	}
-//
-//	if len(mds.subs.trades) > 0 {
-//		for id := range mds.subs.trades {
-//			ids = append(ids, id)
-//			//delete(mds.subs.trades, id)
-//		}
-//		_, err := mds.SubscribeTrade(ids)
-//		if err != nil {
-//			return err
-//		}
-//		ids = nil
-//	}
-//
-//	if len(mds.subs.tradingStatuses) > 0 {
-//		for id := range mds.subs.tradingStatuses {
-//			ids = append(ids, id)
-//			//delete(mds.subs.tradingStatuses, id)
-//		}
-//		_, err := mds.SubscribeInfo(ids)
-//		if err != nil {
-//			return err
-//		}
-//		ids = nil
-//	}
-//
-//	if len(mds.subs.lastPrices) > 0 {
-//		for id := range mds.subs.lastPrices {
-//			ids = append(ids, id)
-//			//delete(mds.subs.lastPrices, id)
-//		}
-//		_, err := mds.SubscribeLastPrice(ids)
-//		if err != nil {
-//			return err
-//		}
-//		ids = nil
-//	}
-//
-//	if len(mds.subs.orderBooks) > 0 {
-//		for id := range mds.subs.orderBooks {
-//			ids = append(ids, id)
-//			//delete(mds.subs.orderBooks, id)
-//		}
-//		_, err := mds.SubscribeOrderBook(ids, 1)
-//		if err != nil {
-//			return err
-//		}
-//	}
-//
-//	return nil
-//}
+func (mds *MDStream) restart(ctx context.Context, attempt uint, err error) {
+	fmt.Printf("Try to retry err = %v, attemt = %v\n", err.Error(), attempt)
+	mds.stream, err = mds.mdsClient.pbClient.MarketDataStream(mds.ctx, retry.WithOnRetryCallback(mds.restart))
+	if err != nil {
+		mds.mdsClient.logger.Errorf("md stream restart fail %v", err.Error())
+	}
+	err = mds.reSubscribeAll()
+	if err != nil {
+		mds.mdsClient.logger.Errorf("md stream restart fail %v", err.Error())
+	}
+}
+
+func (mds *MDStream) reSubscribeAll() error {
+	ids := make([]string, 0)
+	if len(mds.subs.candles) > 0 {
+		intervals := make(map[pb.SubscriptionInterval][]string, 0)
+
+		for id, interval := range mds.subs.candles {
+			intervals[interval] = append(intervals[interval], id)
+		}
+		for interval, ids := range intervals {
+			_, err := mds.SubscribeCandle(ids, interval)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(mds.subs.trades) > 0 {
+		for id := range mds.subs.trades {
+			ids = append(ids, id)
+		}
+		_, err := mds.SubscribeTrade(ids)
+		if err != nil {
+			return err
+		}
+		ids = nil
+	}
+
+	if len(mds.subs.tradingStatuses) > 0 {
+		for id := range mds.subs.tradingStatuses {
+			ids = append(ids, id)
+		}
+		_, err := mds.SubscribeInfo(ids)
+		if err != nil {
+			return err
+		}
+		ids = nil
+	}
+
+	if len(mds.subs.lastPrices) > 0 {
+		for id := range mds.subs.lastPrices {
+			ids = append(ids, id)
+		}
+		_, err := mds.SubscribeLastPrice(ids)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(mds.subs.orderBooks) > 0 {
+		orderBooks := make(map[int32][]string, 0)
+
+		for id, depth := range mds.subs.orderBooks {
+			orderBooks[depth] = append(orderBooks[depth], id)
+		}
+
+		for depth, ids := range orderBooks {
+			_, err := mds.SubscribeOrderBook(ids, depth)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
