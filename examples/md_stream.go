@@ -32,7 +32,7 @@ func main() {
 	}()
 
 	if err != nil {
-		log.Fatalf("logger creating error %e", err)
+		log.Fatalf("logger creating error %v", err)
 	}
 	logger := prod.Sugar()
 
@@ -53,7 +53,7 @@ func main() {
 	wg := &sync.WaitGroup{}
 
 	// один раз создаем клиента для стримов
-	MDClient := client.NewMDStreamClient()
+	MDClient := client.NewMarketDataStreamClient()
 
 	// создаем стримов сколько нужно, например 2
 	firstMDStream, err := MDClient.MarketDataStream()
@@ -118,6 +118,7 @@ func main() {
 		logger.Errorf(err.Error())
 	}
 
+	// доступные значения глубины стакана: 1, 10, 20, 30, 40, 50
 	secondInstrumetsGroup := []string{"BBG004S681W1", "BBG004731354"}
 	obChan, err := secondMDStream.SubscribeOrderBook(secondInstrumetsGroup, 10)
 	if err != nil {

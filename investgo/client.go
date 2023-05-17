@@ -96,10 +96,10 @@ type Logger interface {
 	Fatalf(template string, args ...any)
 }
 
-// NewMDStreamClient - создание клиента для сервиса стримов маркетадаты
-func (c *Client) NewMDStreamClient() *MDStreamClient {
+// NewMarketDataStreamClient - создание клиента для сервиса стримов маркетадаты
+func (c *Client) NewMarketDataStreamClient() *MarketDataStreamClient {
 	pbClient := pb.NewMarketDataStreamServiceClient(c.conn)
-	return &MDStreamClient{
+	return &MarketDataStreamClient{
 		conn:     c.conn,
 		config:   c.Config,
 		logger:   c.Logger,

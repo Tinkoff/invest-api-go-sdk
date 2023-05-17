@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-type MDStreamClient struct {
+type MarketDataStreamClient struct {
 	conn     *grpc.ClientConn
 	config   Config
 	logger   Logger
@@ -16,9 +16,9 @@ type MDStreamClient struct {
 }
 
 // MarketDataStream - метод возвращает стрим биржевой информации
-func (c *MDStreamClient) MarketDataStream() (*MDStream, error) {
+func (c *MarketDataStreamClient) MarketDataStream() (*MarketDataStream, error) {
 	ctx, cancel := context.WithCancel(c.ctx)
-	mds := &MDStream{
+	mds := &MarketDataStream{
 		stream:        nil,
 		mdsClient:     c,
 		ctx:           ctx,
