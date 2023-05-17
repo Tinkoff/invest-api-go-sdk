@@ -171,10 +171,11 @@ func StreamClientInterceptor(optFuncs ...CallOption) grpc.StreamClientIntercepto
 			var newStreamer grpc.ClientStream
 			newStreamer, lastErr = streamer(callCtx, desc, cc, method, grpcOpts...)
 			if lastErr == nil {
-				retryingStreamer := &serverStreamingRetryingStream{
+				retryingStreamer := &retryingStream{
 					ClientStream: newStreamer,
 					callOpts:     callOpts,
 					parentCtx:    parentCtx,
+					desc:         desc,
 					streamerCall: func(ctx context.Context) (grpc.ClientStream, error) {
 						return streamer(ctx, desc, cc, method, grpcOpts...)
 					},
@@ -202,54 +203,56 @@ func StreamClientInterceptor(optFuncs ...CallOption) grpc.StreamClientIntercepto
 	}
 }
 
-// type serverStreamingRetryingStream is the implementation of grpc.ClientStream that acts as a
+// type retryingStream is the implementation of grpc.ClientStream that acts as a
 // proxy to the underlying call. If any of the RecvMsg() calls fail, it will try to reestablish
 // a new ClientStream according to the retry policy.
-type serverStreamingRetryingStream struct {
+type retryingStream struct {
 	grpc.ClientStream
-	bufferedSends []any // single message that the client can sen
+	bufferedSends []any // single message that the client can send
 	wasClosedSend bool  // indicates that CloseSend was closed
 	parentCtx     context.Context
 	callOpts      *options
 	streamerCall  func(ctx context.Context) (grpc.ClientStream, error)
 	mu            sync.RWMutex
+
+	desc *grpc.StreamDesc
 }
 
-func (s *serverStreamingRetryingStream) setStream(clientStream grpc.ClientStream) {
+func (s *retryingStream) setStream(clientStream grpc.ClientStream) {
 	s.mu.Lock()
 	s.ClientStream = clientStream
 	s.mu.Unlock()
 }
 
-func (s *serverStreamingRetryingStream) getStream() grpc.ClientStream {
+func (s *retryingStream) getStream() grpc.ClientStream {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.ClientStream
 }
 
-func (s *serverStreamingRetryingStream) SendMsg(m any) error {
+func (s *retryingStream) SendMsg(m any) error {
 	s.mu.Lock()
 	s.bufferedSends = append(s.bufferedSends, m)
 	s.mu.Unlock()
 	return s.getStream().SendMsg(m)
 }
 
-func (s *serverStreamingRetryingStream) CloseSend() error {
+func (s *retryingStream) CloseSend() error {
 	s.mu.Lock()
 	s.wasClosedSend = true
 	s.mu.Unlock()
 	return s.getStream().CloseSend()
 }
 
-func (s *serverStreamingRetryingStream) Header() (grpcMetadata.MD, error) {
+func (s *retryingStream) Header() (grpcMetadata.MD, error) {
 	return s.getStream().Header()
 }
 
-func (s *serverStreamingRetryingStream) Trailer() grpcMetadata.MD {
+func (s *retryingStream) Trailer() grpcMetadata.MD {
 	return s.getStream().Trailer()
 }
 
-func (s *serverStreamingRetryingStream) RecvMsg(m any) error {
+func (s *retryingStream) RecvMsg(m any) error {
 	attemptRetry, lastErr := s.receiveMsgAndIndicateRetry(m)
 	if !attemptRetry {
 		return lastErr // success or hard failure
@@ -280,7 +283,7 @@ func (s *serverStreamingRetryingStream) RecvMsg(m any) error {
 	return lastErr
 }
 
-func (s *serverStreamingRetryingStream) receiveMsgAndIndicateRetry(m any) (bool, error) {
+func (s *retryingStream) receiveMsgAndIndicateRetry(m any) (bool, error) {
 	err := s.getStream().RecvMsg(m)
 	if err == nil || err == io.EOF {
 		return false, err
@@ -299,7 +302,7 @@ func (s *serverStreamingRetryingStream) receiveMsgAndIndicateRetry(m any) (bool,
 	return isRetriable(err, s.callOpts), err
 }
 
-func (s *serverStreamingRetryingStream) reestablishStreamAndResendBuffer(callCtx context.Context) (grpc.ClientStream, error) {
+func (s *retryingStream) reestablishStreamAndResendBuffer(callCtx context.Context) (grpc.ClientStream, error) {
 	s.mu.RLock()
 	bufferedSends := s.bufferedSends
 	s.mu.RUnlock()
@@ -314,9 +317,11 @@ func (s *serverStreamingRetryingStream) reestablishStreamAndResendBuffer(callCtx
 			return nil, err
 		}
 	}
-	if err := newStream.CloseSend(); err != nil {
-		logTrace(callCtx, "grpc_retry failed CloseSend on new stream %v", err)
-		return nil, err
+	if !s.desc.ClientStreams {
+		if err := newStream.CloseSend(); err != nil {
+			logTrace(callCtx, "grpc_retry failed CloseSend on new stream %v", err)
+			return nil, err
+		}
 	}
 	return newStream, nil
 }

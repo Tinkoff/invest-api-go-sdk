@@ -2,9 +2,7 @@ package investgo
 
 import (
 	"context"
-	"fmt"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
-	"github.com/tinkoff/invest-api-go-sdk/retry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -367,15 +365,7 @@ func (mds *MDStream) UnSubscribeAll() error {
 }
 
 func (mds *MDStream) restart(ctx context.Context, attempt uint, err error) {
-	fmt.Printf("Try to retry err = %v, attemt = %v\n", err.Error(), attempt)
-	mds.stream, err = mds.mdsClient.pbClient.MarketDataStream(mds.ctx, retry.WithOnRetryCallback(mds.restart))
-	if err != nil {
-		mds.mdsClient.logger.Errorf("md stream restart fail %v", err.Error())
-	}
-	err = mds.reSubscribeAll()
-	if err != nil {
-		mds.mdsClient.logger.Errorf("md stream restart fail %v", err.Error())
-	}
+	mds.mdsClient.logger.Infof("try to restart md stream err = %v, attempt = %v\n", err.Error(), attempt)
 }
 
 func (mds *MDStream) reSubscribeAll() error {

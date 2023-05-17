@@ -7,7 +7,6 @@ import (
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"go.uber.org/zap"
 	"log"
-	"os"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -20,10 +19,8 @@ func main() {
 		log.Printf("Config loading error %v", err.Error())
 	}
 	// контекст будет передан в сдк и будет использоваться для завершения работы
-	ctx, cancel := context.WithCancel(context.Background())
-	signals := make(chan os.Signal)
-	defer close(signals)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	defer cancel()
 
 	// Для примера передадим к качестве логгера uber zap
 	prod, err := zap.NewProduction()
@@ -161,9 +158,6 @@ func main() {
 			}
 		}
 	}(ctx)
-
-	<-signals
-	cancel()
 
 	wg.Wait()
 }

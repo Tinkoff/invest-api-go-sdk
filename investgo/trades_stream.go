@@ -52,7 +52,7 @@ func (t *TradesStream) Listen() error {
 }
 
 func (t *TradesStream) restart(ctx context.Context, attempt uint, err error) {
-	t.ordersClient.logger.Infof("try to restart trades stream err = %v, attempt = %v\n", err.Error(), attempt)
+	t.ordersClient.logger.Infof("try to restart trades stream err = %v, attempt = %v", err.Error(), attempt)
 }
 
 func (t *TradesStream) shutdown() {
