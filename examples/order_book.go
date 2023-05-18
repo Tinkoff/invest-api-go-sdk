@@ -130,6 +130,7 @@ func main() {
 	}(ctx)
 
 	jsonFile := make(chan []OrderBook)
+	defer close(jsonFile)
 	// сохраняем в хранилище
 	wg.Add(1)
 	go func(ctx context.Context) {
