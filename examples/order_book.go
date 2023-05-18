@@ -210,7 +210,7 @@ func transformOrderBook(input *pb.OrderBook) *OrderBook {
 }
 
 func writeOrderBooksToFile(orderBooks []OrderBook) error {
-	file, err := os.Create("order_books.json")
+	file, err := os.Create("examples/json/order_books.json")
 	if err != nil {
 		return err
 	}
