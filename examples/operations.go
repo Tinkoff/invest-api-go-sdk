@@ -14,7 +14,7 @@ func main() {
 	// создаем клиента с grpc connection
 	config, err := investgo.LoadConfig("config.yaml")
 	if err != nil {
-		log.Println("Cnf loading error", err.Error())
+		log.Fatalf("config loading error %v", err.Error())
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -28,7 +28,7 @@ func main() {
 
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		log.Printf("Client creating error %e", err)
+		logger.Fatalf("Client creating error %v", err.Error())
 	}
 	defer func() {
 		logger.Infof("Closing client connection")

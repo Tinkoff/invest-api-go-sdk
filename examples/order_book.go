@@ -34,7 +34,7 @@ type OrderBook struct {
 func main() {
 	config, err := investgo.LoadConfig("config.yaml")
 	if err != nil {
-		log.Printf("Config loading error %v", err.Error())
+		log.Fatalf("config loading error %v", err.Error())
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
@@ -55,7 +55,7 @@ func main() {
 
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		logger.Errorf("Client creating error %v", err.Error())
+		logger.Fatalf("Client creating error %v", err.Error())
 	}
 	defer func() {
 		logger.Infof("Closing client connection")
@@ -78,6 +78,9 @@ func main() {
 
 	instruments := []string{"BBG004730N88", "BBG00475KKY8", "BBG004RVFCY3"}
 	orderBooks, err := stream.SubscribeOrderBook(instruments, 20)
+	if err != nil {
+		logger.Errorf(err.Error())
+	}
 
 	orderBookStorage := make(chan *OrderBook)
 	defer close(orderBookStorage)
@@ -172,7 +175,7 @@ func main() {
 				}
 				err := writeOrderBooksToFile(data)
 				if err != nil {
-					logger.Infof(err.Error())
+					logger.Errorf(err.Error())
 				}
 			}
 		}

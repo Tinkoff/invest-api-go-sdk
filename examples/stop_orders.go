@@ -14,7 +14,7 @@ func main() {
 	// Созадем клиента с grpc connection
 	config, err := investgo.LoadConfig("config.yaml")
 	if err != nil {
-		log.Println("Cnf loading error", err.Error())
+		log.Fatalf("config loading error %v", err.Error())
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -28,7 +28,7 @@ func main() {
 
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		log.Printf("Client creating error %e", err)
+		logger.Fatalf("Client creating error %v", err.Error())
 	}
 	defer func() {
 		logger.Infof("Closing client connection")
@@ -45,7 +45,7 @@ func main() {
 
 	lastPrice, err := marketDataService.GetLastPrices([]string{"BBG004S681W1"})
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		prices := lastPrice.GetLastPrices()
 		if len(prices) > 0 {
@@ -69,7 +69,7 @@ func main() {
 		ExpireDate:     time.Time{},
 	})
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		orderId = stopOrderResp.GetStopOrderId()
 		fmt.Printf("Stop order id = %v\n", orderId)
@@ -77,7 +77,7 @@ func main() {
 
 	cancelStopOrderResp, err := stopOrdersService.CancelStopOrder(config.AccountId, orderId)
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		fmt.Printf("cancelling time = %v\n", cancelStopOrderResp.GetTime().AsTime().String())
 	}

@@ -12,7 +12,7 @@ func main() {
 	// Загружаем конфигурацию для сдк
 	config, err := investgo.LoadConfig("config.yaml")
 	if err != nil {
-		log.Println("Cnf loading error", err.Error())
+		log.Fatalf("config loading error %v", err.Error())
 	}
 	// контекст будет передан в сдк и будет использоваться для завершения работы
 	ctx, cancel := context.WithCancel(context.Background())
@@ -35,7 +35,7 @@ func main() {
 	// Создаем клиента для апи инвестиций, он поддерживает grpc соединение
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		logger.Infof("Client creating error %v", err.Error())
+		logger.Fatalf("Client creating error %v", err.Error())
 	}
 	defer func() {
 		logger.Infof("Closing client connection")
@@ -50,7 +50,7 @@ func main() {
 	var accId string
 	accsResp, err := usersService.GetAccounts()
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		accs := accsResp.GetAccounts()
 		for _, acc := range accs {
@@ -61,7 +61,7 @@ func main() {
 
 	marginResp, err := usersService.GetMarginAttributes(accId)
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		fmt.Printf("liquid portfolio moneyvalue = %v\n", marginResp.GetLiquidPortfolio().ToFloat())
 	}

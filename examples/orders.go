@@ -13,7 +13,7 @@ func main() {
 	// Созадем клиента с grpc connection
 	config, err := investgo.LoadConfig("config.yaml")
 	if err != nil {
-		log.Println("Cnf loading error", err.Error())
+		log.Fatalf("config loading error %v", err.Error())
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -27,7 +27,7 @@ func main() {
 
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		log.Printf("Client creating error %e", err)
+		logger.Fatalf("Client creating error %v", err.Error())
 	}
 	defer func() {
 		logger.Infof("Closing client connection")
@@ -49,7 +49,7 @@ func main() {
 	})
 
 	if err != nil {
-		logger.Infof("buy order %v", err.Error())
+		logger.Errorf("buy order %v", err.Error())
 	}
 	// можем извлечь метаданные из ответа
 	fmt.Printf("remaining ratelimit = %v\n", investgo.RemainingLimitFromHeader(buyResp.GetHeader()))
