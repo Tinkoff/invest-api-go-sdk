@@ -14,7 +14,7 @@ func main() {
 	// Загружаем конфигурацию для сдк
 	config, err := investgo.LoadConfig("config.yaml")
 	if err != nil {
-		log.Println("Cnf loading error", err.Error())
+		log.Fatalf("config loading error %v", err.Error())
 	}
 	// контекст будет передан в сдк и будет использоваться для завершения работы
 	ctx, cancel := context.WithCancel(context.Background())
@@ -37,7 +37,7 @@ func main() {
 	// Создаем клиента для апи инвестиций, он поддерживает grpc соединение
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		logger.Infof("Client creating error %v", err.Error())
+		logger.Fatalf("Client creating error %v", err.Error())
 	}
 	defer func() {
 		logger.Infof("Closing client connection")
@@ -52,7 +52,7 @@ func main() {
 
 	instrResp, err := instrumentsService.FindInstrument("TCSG")
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		ins := instrResp.GetInstruments()
 		for _, instrument := range ins {
@@ -62,7 +62,7 @@ func main() {
 
 	instrResp1, err := instrumentsService.FindInstrument("Тинькофф")
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		ins := instrResp1.GetInstruments()
 		for _, instrument := range ins {
@@ -72,7 +72,7 @@ func main() {
 
 	scheduleResp, err := instrumentsService.TradingSchedules("MOEX", time.Now(), time.Now().Add(time.Hour*24))
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		exs := scheduleResp.GetExchanges()
 		for _, ex := range exs {
@@ -84,7 +84,7 @@ func main() {
 	// инструментов по торговому статусу аналогичны друг другу по входным параметрам
 	tcsResp, err := instrumentsService.ShareByUid("6afa6f80-03a7-4d83-9cf0-c19d7d021f76")
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		fmt.Printf("TCSG share currency -  %v, ipo date - %v\n",
 			tcsResp.GetInstrument().GetCurrency(), tcsResp.GetInstrument().GetIpoDate().AsTime().String())
@@ -92,7 +92,7 @@ func main() {
 
 	bondsResp, err := instrumentsService.Bonds(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		bonds := bondsResp.GetInstruments()
 		for i, b := range bonds {
@@ -105,14 +105,14 @@ func main() {
 
 	bond, err := instrumentsService.BondByFigi("BBG00QXGFHS6")
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		fmt.Printf("bond by figi = %v\n", bond.GetInstrument().String())
 	}
 
 	interestsResp, err := instrumentsService.GetAccruedInterests("BBG00QXGFHS6", time.Now().Add(-72*time.Hour), time.Now())
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		in := interestsResp.GetAccruedInterests()
 		for _, interest := range in {
@@ -122,7 +122,7 @@ func main() {
 
 	bondCouponsResp, err := instrumentsService.GetBondCoupons("BBG00QXGFHS6", time.Now(), time.Now().Add(time.Hour*10000))
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		ev := bondCouponsResp.GetEvents()
 		for _, coupon := range ev {
@@ -130,30 +130,17 @@ func main() {
 		}
 	}
 
-	optionsResp, err := instrumentsService.Options(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
-	if err != nil {
-		logger.Error(err.Error())
-	} else {
-		options := optionsResp.GetInstruments()
-		for i, op := range options {
-			fmt.Printf("option %v, ticker = %v, classcode = %v\n", i, op.GetTicker(), op.GetClassCode())
-			if i > 4 {
-				break
-			}
-		}
-	}
-
 	optionByTickerResp, err := instrumentsService.OptionByTicker("TT440CE3B", "SPBOPT")
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		option := optionByTickerResp.GetInstrument()
 		fmt.Printf("option name = %v, asset size = %v\n", option.GetName(), option.GetBasicAssetSize().ToFloat())
 	}
 
-	dividentsResp, err := instrumentsService.GetDividents("6afa6f80-03a7-4d83-9cf0-c19d7d021f76", time.Now(), time.Now().Add(1000*time.Hour))
+	dividentsResp, err := instrumentsService.GetDividents("BBG004730N88", time.Now(), time.Now().Add(1000*time.Hour))
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 		fmt.Printf("header msg = %v\n", dividentsResp.GetHeader().Get("message"))
 	} else {
 		divs := dividentsResp.GetDividends()

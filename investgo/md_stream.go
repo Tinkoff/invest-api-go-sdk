@@ -7,9 +7,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type MDStream struct {
+type MarketDataStream struct {
 	stream    pb.MarketDataStreamService_MarketDataStreamClient
-	mdsClient *MDStreamClient
+	mdsClient *MarketDataStreamClient
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -32,7 +32,7 @@ type subscriptions struct {
 }
 
 // SubscribeCandle - Метод подписки на свечи с заданным интервалом
-func (mds *MDStream) SubscribeCandle(ids []string, interval pb.SubscriptionInterval) (<-chan *pb.Candle, error) {
+func (mds *MarketDataStream) SubscribeCandle(ids []string, interval pb.SubscriptionInterval) (<-chan *pb.Candle, error) {
 	err := mds.sendCandlesReq(ids, interval, pb.SubscriptionAction_SUBSCRIPTION_ACTION_SUBSCRIBE)
 	if err != nil {
 		return nil, err
@@ -44,7 +44,7 @@ func (mds *MDStream) SubscribeCandle(ids []string, interval pb.SubscriptionInter
 }
 
 // UnSubscribeCandle - Метод отписки от свечей
-func (mds *MDStream) UnSubscribeCandle(ids []string, interval pb.SubscriptionInterval) error {
+func (mds *MarketDataStream) UnSubscribeCandle(ids []string, interval pb.SubscriptionInterval) error {
 	err := mds.sendCandlesReq(ids, interval, pb.SubscriptionAction_SUBSCRIPTION_ACTION_UNSUBSCRIBE)
 	if err != nil {
 		return err
@@ -55,7 +55,7 @@ func (mds *MDStream) UnSubscribeCandle(ids []string, interval pb.SubscriptionInt
 	return nil
 }
 
-func (mds *MDStream) sendCandlesReq(ids []string, interval pb.SubscriptionInterval, act pb.SubscriptionAction) error {
+func (mds *MarketDataStream) sendCandlesReq(ids []string, interval pb.SubscriptionInterval, act pb.SubscriptionAction) error {
 	instruments := make([]*pb.CandleInstrument, 0, len(ids))
 	for _, id := range ids {
 		instruments = append(instruments, &pb.CandleInstrument{
@@ -76,7 +76,7 @@ func (mds *MDStream) sendCandlesReq(ids []string, interval pb.SubscriptionInterv
 }
 
 // SubscribeOrderBook - метод подписки на стаканы инструментов с одинаковой глубиной
-func (mds *MDStream) SubscribeOrderBook(ids []string, depth int32) (<-chan *pb.OrderBook, error) {
+func (mds *MarketDataStream) SubscribeOrderBook(ids []string, depth int32) (<-chan *pb.OrderBook, error) {
 	err := mds.sendOrderBookReq(ids, depth, pb.SubscriptionAction_SUBSCRIPTION_ACTION_SUBSCRIBE)
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func (mds *MDStream) SubscribeOrderBook(ids []string, depth int32) (<-chan *pb.O
 }
 
 // UnSubscribeOrderBook - метод отдписки от стаканов инструментов
-func (mds *MDStream) UnSubscribeOrderBook(ids []string) error {
+func (mds *MarketDataStream) UnSubscribeOrderBook(ids []string) error {
 	err := mds.sendOrderBookReq(ids, 0, pb.SubscriptionAction_SUBSCRIPTION_ACTION_UNSUBSCRIBE)
 	if err != nil {
 		return err
@@ -99,7 +99,7 @@ func (mds *MDStream) UnSubscribeOrderBook(ids []string) error {
 	return nil
 }
 
-func (mds *MDStream) sendOrderBookReq(ids []string, depth int32, act pb.SubscriptionAction) error {
+func (mds *MarketDataStream) sendOrderBookReq(ids []string, depth int32, act pb.SubscriptionAction) error {
 	instruments := make([]*pb.OrderBookInstrument, 0, len(ids))
 	for _, id := range ids {
 		instruments = append(instruments, &pb.OrderBookInstrument{
@@ -116,7 +116,7 @@ func (mds *MDStream) sendOrderBookReq(ids []string, depth int32, act pb.Subscrip
 }
 
 // SubscribeTrade - метод подписки на ленту обезличенных сделок
-func (mds *MDStream) SubscribeTrade(ids []string) (<-chan *pb.Trade, error) {
+func (mds *MarketDataStream) SubscribeTrade(ids []string) (<-chan *pb.Trade, error) {
 	err := mds.sendTradesReq(ids, pb.SubscriptionAction_SUBSCRIPTION_ACTION_SUBSCRIBE)
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func (mds *MDStream) SubscribeTrade(ids []string) (<-chan *pb.Trade, error) {
 }
 
 // UnSubscribeTrade - метод отписки от ленты обезличенных сделок
-func (mds *MDStream) UnSubscribeTrade(ids []string) error {
+func (mds *MarketDataStream) UnSubscribeTrade(ids []string) error {
 	err := mds.sendTradesReq(ids, pb.SubscriptionAction_SUBSCRIPTION_ACTION_UNSUBSCRIBE)
 	if err != nil {
 		return err
@@ -139,7 +139,7 @@ func (mds *MDStream) UnSubscribeTrade(ids []string) error {
 	return nil
 }
 
-func (mds *MDStream) sendTradesReq(ids []string, act pb.SubscriptionAction) error {
+func (mds *MarketDataStream) sendTradesReq(ids []string, act pb.SubscriptionAction) error {
 	instruments := make([]*pb.TradeInstrument, 0, len(ids))
 	for _, id := range ids {
 		instruments = append(instruments, &pb.TradeInstrument{
@@ -155,7 +155,7 @@ func (mds *MDStream) sendTradesReq(ids []string, act pb.SubscriptionAction) erro
 }
 
 // SubscribeInfo - метод подписки на торговые статусы инструментов
-func (mds *MDStream) SubscribeInfo(ids []string) (<-chan *pb.TradingStatus, error) {
+func (mds *MarketDataStream) SubscribeInfo(ids []string) (<-chan *pb.TradingStatus, error) {
 	err := mds.sendInfoReq(ids, pb.SubscriptionAction_SUBSCRIPTION_ACTION_SUBSCRIBE)
 	if err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func (mds *MDStream) SubscribeInfo(ids []string) (<-chan *pb.TradingStatus, erro
 }
 
 // UnSubscribeInfo - метод отписки от торговых статусов инструментов
-func (mds *MDStream) UnSubscribeInfo(ids []string) error {
+func (mds *MarketDataStream) UnSubscribeInfo(ids []string) error {
 	err := mds.sendInfoReq(ids, pb.SubscriptionAction_SUBSCRIPTION_ACTION_UNSUBSCRIBE)
 	if err != nil {
 		return err
@@ -178,7 +178,7 @@ func (mds *MDStream) UnSubscribeInfo(ids []string) error {
 	return nil
 }
 
-func (mds *MDStream) sendInfoReq(ids []string, act pb.SubscriptionAction) error {
+func (mds *MarketDataStream) sendInfoReq(ids []string, act pb.SubscriptionAction) error {
 	instruments := make([]*pb.InfoInstrument, 0, len(ids))
 	for _, id := range ids {
 		instruments = append(instruments, &pb.InfoInstrument{
@@ -194,7 +194,7 @@ func (mds *MDStream) sendInfoReq(ids []string, act pb.SubscriptionAction) error 
 }
 
 // SubscribeLastPrice - метод подписки на последние цены инструментов
-func (mds *MDStream) SubscribeLastPrice(ids []string) (<-chan *pb.LastPrice, error) {
+func (mds *MarketDataStream) SubscribeLastPrice(ids []string) (<-chan *pb.LastPrice, error) {
 	err := mds.sendLastPriceReq(ids, pb.SubscriptionAction_SUBSCRIPTION_ACTION_SUBSCRIBE)
 	if err != nil {
 		return nil, err
@@ -206,7 +206,7 @@ func (mds *MDStream) SubscribeLastPrice(ids []string) (<-chan *pb.LastPrice, err
 }
 
 // UnSubscribeLastPrice - метод отписки от последних цен инструментов
-func (mds *MDStream) UnSubscribeLastPrice(ids []string) error {
+func (mds *MarketDataStream) UnSubscribeLastPrice(ids []string) error {
 	err := mds.sendLastPriceReq(ids, pb.SubscriptionAction_SUBSCRIPTION_ACTION_UNSUBSCRIBE)
 	if err != nil {
 		return err
@@ -217,7 +217,7 @@ func (mds *MDStream) UnSubscribeLastPrice(ids []string) error {
 	return nil
 }
 
-func (mds *MDStream) sendLastPriceReq(ids []string, act pb.SubscriptionAction) error {
+func (mds *MarketDataStream) sendLastPriceReq(ids []string, act pb.SubscriptionAction) error {
 	instruments := make([]*pb.LastPriceInstrument, 0, len(ids))
 	for _, id := range ids {
 		instruments = append(instruments, &pb.LastPriceInstrument{
@@ -233,18 +233,18 @@ func (mds *MDStream) sendLastPriceReq(ids []string, act pb.SubscriptionAction) e
 }
 
 // GetMySubscriptions - метод получения подписок в рамках данного стрима
-func (mds *MDStream) GetMySubscriptions() error {
+func (mds *MarketDataStream) GetMySubscriptions() error {
 	return mds.stream.Send(&pb.MarketDataRequest{
 		Payload: &pb.MarketDataRequest_GetMySubscriptions{
 			GetMySubscriptions: &pb.GetMySubscriptions{}}})
 }
 
-func (mds *MDStream) Listen() error {
+func (mds *MarketDataStream) Listen() error {
 	defer mds.shutdown()
 	for {
 		select {
 		case <-mds.ctx.Done():
-			mds.mdsClient.logger.Infof("Stop listening")
+			mds.mdsClient.logger.Infof("stop listening")
 			return nil
 		default:
 			resp, err := mds.stream.Recv()
@@ -252,15 +252,8 @@ func (mds *MDStream) Listen() error {
 				// если ошибка связана с завершением контекста, обрабатываем ее
 				switch {
 				case status.Code(err) == codes.Canceled:
-					mds.mdsClient.logger.Infof("Stop listening")
+					mds.mdsClient.logger.Infof("stop listening")
 					return nil
-				case status.Code(err) == codes.Unavailable:
-					return err
-					// mds.mdsClient.Logger.Infof("Unavailable")
-					//err := mds.retryH()
-					//if err != nil {
-					//	return err
-					//}
 				default:
 					return err
 				}
@@ -272,21 +265,7 @@ func (mds *MDStream) Listen() error {
 	}
 }
 
-//func (mds *MDStream) retryH() error {
-//	newStream, err := mds.mdsClient.pbStreamH()
-//	if err != nil {
-//		return err
-//	}
-//	mds.stream = newStream
-//	mds.mdsClient.Logger.Infof(mds.mdsClient.conn.GetState().String())
-//	err = mds.SubscribeAll()
-//	if err != nil {
-//		return err
-//	}
-//	return nil
-//}
-
-func (mds *MDStream) sendRespToChannel(resp *pb.MarketDataResponse) {
+func (mds *MarketDataStream) sendRespToChannel(resp *pb.MarketDataResponse) {
 	switch resp.GetPayload().(type) {
 	case *pb.MarketDataResponse_Candle:
 		mds.candle <- resp.GetCandle()
@@ -303,7 +282,7 @@ func (mds *MDStream) sendRespToChannel(resp *pb.MarketDataResponse) {
 	}
 }
 
-func (mds *MDStream) shutdown() {
+func (mds *MarketDataStream) shutdown() {
 	mds.mdsClient.logger.Infof("Close market data stream")
 	close(mds.candle)
 	close(mds.trade)
@@ -313,12 +292,12 @@ func (mds *MDStream) shutdown() {
 }
 
 // Stop - Завершение работы стрима
-func (mds *MDStream) Stop() {
+func (mds *MarketDataStream) Stop() {
 	mds.cancel()
 }
 
 // UnSubscribeAll - Метод отписки от всей информации, отслеживаемой на данный момент
-func (mds *MDStream) UnSubscribeAll() error {
+func (mds *MarketDataStream) UnSubscribeAll() error {
 	ids := make([]string, 0)
 	if len(mds.subs.candles) > 0 {
 		intervals := make(map[pb.SubscriptionInterval][]string, 0)
@@ -385,69 +364,72 @@ func (mds *MDStream) UnSubscribeAll() error {
 	return nil
 }
 
-//func (mds *MDStream) SubscribeAll() error {
-//	ids := make([]string, 0)
-//	if len(mds.subs.candles) > 0 {
-//		intervals := make(map[pb.SubscriptionInterval][]string, 0)
-//
-//		for id, interval := range mds.subs.candles {
-//			intervals[interval] = append(intervals[interval], id)
-//			//delete(mds.subs.candles, id)
-//		}
-//		for interval, ids := range intervals {
-//			_, err := mds.SubscribeCandle(ids, interval)
-//			if err != nil {
-//				return err
-//			}
-//		}
-//	}
-//
-//	if len(mds.subs.trades) > 0 {
-//		for id := range mds.subs.trades {
-//			ids = append(ids, id)
-//			//delete(mds.subs.trades, id)
-//		}
-//		_, err := mds.SubscribeTrade(ids)
-//		if err != nil {
-//			return err
-//		}
-//		ids = nil
-//	}
-//
-//	if len(mds.subs.tradingStatuses) > 0 {
-//		for id := range mds.subs.tradingStatuses {
-//			ids = append(ids, id)
-//			//delete(mds.subs.tradingStatuses, id)
-//		}
-//		_, err := mds.SubscribeInfo(ids)
-//		if err != nil {
-//			return err
-//		}
-//		ids = nil
-//	}
-//
-//	if len(mds.subs.lastPrices) > 0 {
-//		for id := range mds.subs.lastPrices {
-//			ids = append(ids, id)
-//			//delete(mds.subs.lastPrices, id)
-//		}
-//		_, err := mds.SubscribeLastPrice(ids)
-//		if err != nil {
-//			return err
-//		}
-//		ids = nil
-//	}
-//
-//	if len(mds.subs.orderBooks) > 0 {
-//		for id := range mds.subs.orderBooks {
-//			ids = append(ids, id)
-//			//delete(mds.subs.orderBooks, id)
-//		}
-//		_, err := mds.SubscribeOrderBook(ids, 1)
-//		if err != nil {
-//			return err
-//		}
-//	}
-//
-//	return nil
-//}
+func (mds *MarketDataStream) restart(ctx context.Context, attempt uint, err error) {
+	mds.mdsClient.logger.Infof("try to restart md stream err = %v, attempt = %v\n", err.Error(), attempt)
+}
+
+func (mds *MarketDataStream) reSubscribeAll() error {
+	ids := make([]string, 0)
+	if len(mds.subs.candles) > 0 {
+		intervals := make(map[pb.SubscriptionInterval][]string, 0)
+
+		for id, interval := range mds.subs.candles {
+			intervals[interval] = append(intervals[interval], id)
+		}
+		for interval, ids := range intervals {
+			_, err := mds.SubscribeCandle(ids, interval)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(mds.subs.trades) > 0 {
+		for id := range mds.subs.trades {
+			ids = append(ids, id)
+		}
+		_, err := mds.SubscribeTrade(ids)
+		if err != nil {
+			return err
+		}
+		ids = nil
+	}
+
+	if len(mds.subs.tradingStatuses) > 0 {
+		for id := range mds.subs.tradingStatuses {
+			ids = append(ids, id)
+		}
+		_, err := mds.SubscribeInfo(ids)
+		if err != nil {
+			return err
+		}
+		ids = nil
+	}
+
+	if len(mds.subs.lastPrices) > 0 {
+		for id := range mds.subs.lastPrices {
+			ids = append(ids, id)
+		}
+		_, err := mds.SubscribeLastPrice(ids)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(mds.subs.orderBooks) > 0 {
+		orderBooks := make(map[int32][]string, 0)
+
+		for id, depth := range mds.subs.orderBooks {
+			orderBooks[depth] = append(orderBooks[depth], id)
+		}
+
+		for depth, ids := range orderBooks {
+			_, err := mds.SubscribeOrderBook(ids, depth)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}

@@ -3,6 +3,7 @@ package investgo
 import (
 	"context"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"github.com/tinkoff/invest-api-go-sdk/retry"
 	"google.golang.org/grpc"
 )
 
@@ -17,37 +18,41 @@ type OperationsStreamClient struct {
 // PortfolioStream - Server-side stream обновлений портфеля
 func (o *OperationsStreamClient) PortfolioStream(accounts []string) (*PortfolioStream, error) {
 	ctx, cancel := context.WithCancel(o.ctx)
-	stream, err := o.pbClient.PortfolioStream(ctx, &pb.PortfolioStreamRequest{
-		Accounts: accounts,
-	})
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	return &PortfolioStream{
-		stream:           stream,
+	ps := &PortfolioStream{
+		stream:           nil,
 		operationsClient: o,
 		portfolios:       make(chan *pb.PortfolioResponse),
 		ctx:              ctx,
 		cancel:           cancel,
-	}, nil
+	}
+	stream, err := o.pbClient.PortfolioStream(ctx, &pb.PortfolioStreamRequest{
+		Accounts: accounts,
+	}, retry.WithOnRetryCallback(ps.restart))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	ps.stream = stream
+	return ps, nil
 }
 
 // PositionsStream - Server-side stream обновлений информации по изменению позиций портфеля
 func (o *OperationsStreamClient) PositionsStream(accounts []string) (*PositionsStream, error) {
 	ctx, cancel := context.WithCancel(o.ctx)
-	stream, err := o.pbClient.PositionsStream(ctx, &pb.PositionsStreamRequest{
-		Accounts: accounts,
-	})
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	return &PositionsStream{
-		stream:           stream,
+	ps := &PositionsStream{
+		stream:           nil,
 		operationsClient: o,
 		positions:        make(chan *pb.PositionData),
 		ctx:              ctx,
 		cancel:           cancel,
-	}, nil
+	}
+	stream, err := o.pbClient.PositionsStream(ctx, &pb.PositionsStreamRequest{
+		Accounts: accounts,
+	}, retry.WithOnRetryCallback(ps.restart))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	ps.stream = stream
+	return ps, nil
 }

@@ -7,7 +7,6 @@ import (
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"go.uber.org/zap"
 	"log"
-	"os"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -17,13 +16,11 @@ func main() {
 	// Загружаем конфигурацию для сдк
 	config, err := investgo.LoadConfig("config.yaml")
 	if err != nil {
-		log.Printf("Config loading error %v", err.Error())
+		log.Fatalf("config loading error %v", err.Error())
 	}
 	// контекст будет передан в сдк и будет использоваться для завершения работы
-	ctx, cancel := context.WithCancel(context.Background())
-	signals := make(chan os.Signal)
-	defer close(signals)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	defer cancel()
 
 	// Для примера передадим к качестве логгера uber zap
 	prod, err := zap.NewProduction()
@@ -35,14 +32,14 @@ func main() {
 	}()
 
 	if err != nil {
-		log.Fatalf("logger creating error %e", err)
+		log.Fatalf("logger creating error %v", err)
 	}
 	logger := prod.Sugar()
 
 	// создаем клиента для апи инвестиций, он поддерживает grpc соединение
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		logger.Errorf("Client creating error %v", err.Error())
+		logger.Fatalf("Client creating error %v", err.Error())
 	}
 	defer func() {
 		logger.Infof("Closing client connection")
@@ -56,7 +53,7 @@ func main() {
 	wg := &sync.WaitGroup{}
 
 	// один раз создаем клиента для стримов
-	MDClient := client.NewMDStreamClient()
+	MDClient := client.NewMarketDataStreamClient()
 
 	// создаем стримов сколько нужно, например 2
 	firstMDStream, err := MDClient.MarketDataStream()
@@ -121,6 +118,7 @@ func main() {
 		logger.Errorf(err.Error())
 	}
 
+	// доступные значения глубины стакана: 1, 10, 20, 30, 40, 50
 	secondInstrumetsGroup := []string{"BBG004S681W1", "BBG004731354"}
 	obChan, err := secondMDStream.SubscribeOrderBook(secondInstrumetsGroup, 10)
 	if err != nil {
@@ -161,9 +159,6 @@ func main() {
 			}
 		}
 	}(ctx)
-
-	<-signals
-	cancel()
 
 	wg.Wait()
 }

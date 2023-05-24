@@ -139,6 +139,10 @@ func (md *MarketDataServiceClient) GetClosePrices(instrumentIds []string) (*GetC
 // свечей в формате: instrumentId;time;open;close;high;low;volume.
 // Имя файла по умолчанию: "candles hh:mm:ss"
 func (md *MarketDataServiceClient) GetHistoricCandles(req *GetHistoricCandlesRequest) ([]*pb.HistoricCandle, error) {
+	// by default 1 hour
+	if req.Interval == pb.CandleInterval_CANDLE_INTERVAL_UNSPECIFIED {
+		req.Interval = pb.CandleInterval_CANDLE_INTERVAL_HOUR
+	}
 	duration := selectDuration(req.Interval)
 	// если запрашиваемый интервал больше чем возможный, то нужно разделить его на несколько
 	intervals := make([]time.Time, 0)
@@ -167,7 +171,9 @@ func (md *MarketDataServiceClient) GetHistoricCandles(req *GetHistoricCandlesReq
 		}
 		candles = append(candles, resp.GetCandles()...)
 		if requests == 299 {
-			time.Sleep(time.Minute)
+			if md.config.DisableResourceExhaustedRetry {
+				time.Sleep(time.Minute)
+			}
 			requests = 0
 		}
 	}
@@ -196,17 +202,17 @@ func (md *MarketDataServiceClient) GetAllHistoricCandles(req *GetHistoricCandles
 	if err != nil {
 		return nil, err
 	}
-	ids := resp.GetInstruments()
-	if len(ids) < 1 {
+	instruments := resp.GetInstruments()
+	if len(instruments) < 1 {
 		return nil, fmt.Errorf("Instrument %v not found\n", req.Instrument)
 	}
 
 	var from time.Time
 	switch req.Interval {
 	case pb.CandleInterval_CANDLE_INTERVAL_DAY, pb.CandleInterval_CANDLE_INTERVAL_WEEK, pb.CandleInterval_CANDLE_INTERVAL_MONTH:
-		from = resp.GetInstruments()[0].GetFirst_1DayCandleDate().AsTime()
+		from = instruments[0].GetFirst_1DayCandleDate().AsTime()
 	default:
-		from = resp.GetInstruments()[0].GetFirst_1MinCandleDate().AsTime()
+		from = instruments[0].GetFirst_1MinCandleDate().AsTime()
 	}
 
 	return md.GetHistoricCandles(&GetHistoricCandlesRequest{
@@ -219,7 +225,6 @@ func (md *MarketDataServiceClient) GetAllHistoricCandles(req *GetHistoricCandles
 	})
 }
 
-// by default 1 hour
 func selectDuration(interval pb.CandleInterval) time.Duration {
 	var duration time.Duration
 	switch interval {
@@ -239,9 +244,6 @@ func selectDuration(interval pb.CandleInterval) time.Duration {
 		duration = time.Hour * 24 * 360 * 2
 	case pb.CandleInterval_CANDLE_INTERVAL_MONTH:
 		duration = time.Hour * 24 * 360 * 2
-	case pb.CandleInterval_CANDLE_INTERVAL_UNSPECIFIED:
-		duration = time.Hour * 24 * 7
-		interval = pb.CandleInterval_CANDLE_INTERVAL_HOUR
 	}
 	return duration
 }
@@ -257,9 +259,17 @@ func (md *MarketDataServiceClient) writeCandlesToFile(candles []*pb.HistoricCand
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			md.logger.Errorf(err.Error())
+		}
+	}()
 	for _, candle := range candles {
-		fmt.Fprintf(file, "%v;%v\n", id, candle.ToCSV())
+		_, err = fmt.Fprintf(file, "%v;%v\n", id, candle.ToCSV())
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

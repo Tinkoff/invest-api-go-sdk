@@ -51,6 +51,10 @@ func (p *PortfolioStream) Listen() error {
 	}
 }
 
+func (p *PortfolioStream) restart(ctx context.Context, attempt uint, err error) {
+	p.operationsClient.logger.Infof("Try to restart portfolio stream err = %v, attempt = %v", err.Error(), attempt)
+}
+
 func (p *PortfolioStream) shutdown() {
 	p.operationsClient.logger.Infof("Close portfolio stream")
 	close(p.portfolios)

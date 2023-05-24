@@ -3,10 +3,11 @@ package investgo
 import (
 	"context"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"github.com/tinkoff/invest-api-go-sdk/retry"
 	"google.golang.org/grpc"
 )
 
-type MDStreamClient struct {
+type MarketDataStreamClient struct {
 	conn     *grpc.ClientConn
 	config   Config
 	logger   Logger
@@ -15,15 +16,10 @@ type MDStreamClient struct {
 }
 
 // MarketDataStream - метод возвращает стрим биржевой информации
-func (c *MDStreamClient) MarketDataStream() (*MDStream, error) {
+func (c *MarketDataStreamClient) MarketDataStream() (*MarketDataStream, error) {
 	ctx, cancel := context.WithCancel(c.ctx)
-	stream, err := c.pbClient.MarketDataStream(ctx)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	return &MDStream{
-		stream:        stream,
+	mds := &MarketDataStream{
+		stream:        nil,
 		mdsClient:     c,
 		ctx:           ctx,
 		cancel:        cancel,
@@ -39,14 +35,13 @@ func (c *MDStreamClient) MarketDataStream() (*MDStream, error) {
 			tradingStatuses: make(map[string]struct{}, 0),
 			lastPrices:      make(map[string]struct{}, 0),
 		},
-	}, nil
-}
+	}
 
-// grpc.WaitForReady(false)
-//func (c *MDStreamClient) pbStreamH() (pb.MarketDataStreamService_MarketDataStreamClient, error) {
-//	stream, err := c.pbClient.MarketDataStream(c.ctx, grpc.WaitForReady(false))
-//	if err != nil {
-//		return nil, err
-//	}
-//	return stream, nil
-//}
+	stream, err := c.pbClient.MarketDataStream(ctx, retry.WithOnRetryCallback(mds.restart))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	mds.stream = stream
+	return mds, nil
+}

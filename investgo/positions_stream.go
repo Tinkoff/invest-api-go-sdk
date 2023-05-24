@@ -51,6 +51,10 @@ func (p *PositionsStream) Listen() error {
 	}
 }
 
+func (p *PositionsStream) restart(ctx context.Context, attempt uint, err error) {
+	p.operationsClient.logger.Infof("try to restart positions stream err = %v, attempt = %v", err.Error(), attempt)
+}
+
 func (p *PositionsStream) shutdown() {
 	p.operationsClient.logger.Infof("Close positions stream")
 	close(p.positions)

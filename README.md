@@ -66,22 +66,22 @@ func main() {
 			logger.Errorf("client shutdown error %v", err.Error())
 		}
 	}()
+
+	// для синхронизации всех горутин
 	wg := &sync.WaitGroup{}
 
-	// один раз создаем клиента для сервиса стримов маркетдаты
-	MDClient := client.NewMDStreamClient()
+	// один раз создаем клиента для стримов
+	MDClient := client.NewMarketDataStreamClient()
 
 	// создаем стримов сколько нужно, например 2
 	firstMDStream, err := MDClient.MarketDataStream()
 	if err != nil {
 		logger.Errorf(err.Error())
 	}
-	// результат подписки на инструменты это канал с определенным типом информации. 
-	// при повторном вызове функции подписки(например на свечи),
-	// возвращаемый канал можно игнорировать, так как при первом вызове он уже был получен
+	// результат подписки на инструменты это канал с определенным типом информации, при повторном вызове функции
+	// подписки(например на свечи), возвращаемый канал можно игнорировать, так как при первом вызове он уже был получен
 	firstInstrumetsGroup := []string{"BBG004730N88", "BBG00475KKY8", "BBG004RVFCY3"}
-	candleChan, err := firstMDStream.SubscribeCandle(firstInstrumetsGroup, 
-		pb.SubscriptionInterval_SUBSCRIPTION_INTERVAL_ONE_MINUTE)
+	candleChan, err := firstMDStream.SubscribeCandle(firstInstrumetsGroup, pb.SubscriptionInterval_SUBSCRIPTION_INTERVAL_ONE_MINUTE)
 	if err != nil {
 		logger.Errorf(err.Error())
 	}
@@ -91,10 +91,9 @@ func main() {
 		logger.Errorf(err.Error())
 	}
 
-	// функцию Listen нужно вызвать в отдельной горутине один раз для каждого стрима
-	// для принудительной остановки стрима можно использовать метод Stop, 
-	// он отменяет контекст внутри стрима, 
-	// после чего закрываются каналы и завершается функция Listen
+	// функцию Listen нужно вызвать один раз для каждого стрима и в отдельной горутине
+	// для останвки стрима можно использовать метод Stop, он отменяет контекст внутри стрима
+	// после вызова Stop закрываются каналы и завершается функция Listen
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -104,7 +103,7 @@ func main() {
 		}
 	}()
 
-	// для дальнейшей обработки, поступившей из канала информации, хорошо подойдет механизм
+	// для дальнейшей обработки, поступившей из канала, информации хорошо подойдет механизм,
 	// основанный на паттерне pipeline https://go.dev/blog/pipelines
 
 	wg.Add(1)

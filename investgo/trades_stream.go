@@ -34,7 +34,7 @@ func (t *TradesStream) Listen() error {
 			if err != nil {
 				switch {
 				case status.Code(err) == codes.Canceled:
-					t.ordersClient.logger.Infof("Stop listening order trades")
+					t.ordersClient.logger.Infof("stop listening trades stream")
 					return nil
 				default:
 					return err
@@ -51,8 +51,12 @@ func (t *TradesStream) Listen() error {
 	}
 }
 
+func (t *TradesStream) restart(ctx context.Context, attempt uint, err error) {
+	t.ordersClient.logger.Infof("try to restart trades stream err = %v, attempt = %v", err.Error(), attempt)
+}
+
 func (t *TradesStream) shutdown() {
-	t.ordersClient.logger.Infof("Close trades stream")
+	t.ordersClient.logger.Infof("close trades stream")
 	close(t.trades)
 }
 

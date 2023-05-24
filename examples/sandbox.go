@@ -14,7 +14,7 @@ func main() {
 	// Загружаем конфигурацию для сдк
 	config, err := investgo.LoadConfig("config.yaml")
 	if err != nil {
-		log.Println("Cnf loading error", err.Error())
+		log.Fatalf("config loading error %v", err.Error())
 	}
 	// контекст будет передан в сдк и будет использоваться для завершения работы
 	ctx, cancel := context.WithCancel(context.Background())
@@ -37,13 +37,13 @@ func main() {
 	// Создаем клиента для апи инвестиций, он поддерживает grpc соединение
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		logger.Infof("Client creating error %v", err.Error())
+		logger.Fatalf("Client creating error %v", err.Error())
 	}
 	defer func() {
 		logger.Infof("Closing client connection")
 		err := client.Stop()
 		if err != nil {
-			logger.Error("client shutdown error %v", err.Error())
+			logger.Errorf("client shutdown error %v", err.Error())
 		}
 	}()
 	// сервис песочницы нужен лишь для управления счетами песочнцы и пополнения баланса
@@ -112,7 +112,7 @@ func main() {
 		OrderId:      investgo.CreateUid(),
 	})
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 		fmt.Printf("msg = %v\n", investgo.MessageFromHeader(buyResp.GetHeader()))
 	} else {
 		fmt.Printf("order status = %v\n", buyResp.GetExecutionReportStatus().String())
@@ -140,7 +140,7 @@ func main() {
 		OrderId:      investgo.CreateUid(),
 	})
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Errorf(err.Error())
 	} else {
 		fmt.Printf("order status = %v\n", sellResp.GetExecutionReportStatus().String())
 	}
