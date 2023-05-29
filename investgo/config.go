@@ -21,10 +21,14 @@ type Config struct {
 	// DisableResourceExhaustedRetry - Если true, то сдк не пытается ретраить, после получения ошибки об исчерпывании
 	// лимита запросов, если false, то сдк ждет нужное время и пытается выполнить запрос снова. По умолчанию = false
 	DisableResourceExhaustedRetry bool `yaml:"DisableResourceExhaustedRetry"`
+	// DisableAllRetry - отключение всех ретраев
+	DisableAllRetry bool `yaml:"DisableAllRetry"`
 	// MaxRetries - Максимальное количество попыток переподключения, по умолчанию = 3
+	// (если указать значение 0 это не отключит ретраи, для отключения нужно прописать DisableAllRetry = true)
 	MaxRetries uint `yaml:"MaxRetries"`
 }
 
+// LoadConfig - загрузка конфигурации для сдк из .yaml файла
 func LoadConfig(filename string) (Config, error) {
 	var c Config
 	input, err := os.ReadFile(filename)

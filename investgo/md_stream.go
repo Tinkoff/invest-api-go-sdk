@@ -239,6 +239,7 @@ func (mds *MarketDataStream) GetMySubscriptions() error {
 			GetMySubscriptions: &pb.GetMySubscriptions{}}})
 }
 
+// Listen - метод начинает слушать стрим и отправлять информацию в каналы
 func (mds *MarketDataStream) Listen() error {
 	defer mds.shutdown()
 	for {
@@ -365,71 +366,5 @@ func (mds *MarketDataStream) UnSubscribeAll() error {
 }
 
 func (mds *MarketDataStream) restart(ctx context.Context, attempt uint, err error) {
-	mds.mdsClient.logger.Infof("try to restart md stream err = %v, attempt = %v\n", err.Error(), attempt)
-}
-
-func (mds *MarketDataStream) reSubscribeAll() error {
-	ids := make([]string, 0)
-	if len(mds.subs.candles) > 0 {
-		intervals := make(map[pb.SubscriptionInterval][]string, 0)
-
-		for id, interval := range mds.subs.candles {
-			intervals[interval] = append(intervals[interval], id)
-		}
-		for interval, ids := range intervals {
-			_, err := mds.SubscribeCandle(ids, interval)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	if len(mds.subs.trades) > 0 {
-		for id := range mds.subs.trades {
-			ids = append(ids, id)
-		}
-		_, err := mds.SubscribeTrade(ids)
-		if err != nil {
-			return err
-		}
-		ids = nil
-	}
-
-	if len(mds.subs.tradingStatuses) > 0 {
-		for id := range mds.subs.tradingStatuses {
-			ids = append(ids, id)
-		}
-		_, err := mds.SubscribeInfo(ids)
-		if err != nil {
-			return err
-		}
-		ids = nil
-	}
-
-	if len(mds.subs.lastPrices) > 0 {
-		for id := range mds.subs.lastPrices {
-			ids = append(ids, id)
-		}
-		_, err := mds.SubscribeLastPrice(ids)
-		if err != nil {
-			return err
-		}
-	}
-
-	if len(mds.subs.orderBooks) > 0 {
-		orderBooks := make(map[int32][]string, 0)
-
-		for id, depth := range mds.subs.orderBooks {
-			orderBooks[depth] = append(orderBooks[depth], id)
-		}
-
-		for depth, ids := range orderBooks {
-			_, err := mds.SubscribeOrderBook(ids, depth)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	mds.mdsClient.logger.Infof("try to restart md stream err = %v, attempt = %v", err.Error(), attempt)
 }

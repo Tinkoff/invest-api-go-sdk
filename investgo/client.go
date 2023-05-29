@@ -84,8 +84,9 @@ func setDefaultConfig(conf *Config) {
 	if strings.Compare(conf.AppName, "") == 0 {
 		conf.AppName = "invest-api-go-sdk"
 	}
-
-	if conf.MaxRetries == 0 {
+	if conf.DisableAllRetry {
+		conf.MaxRetries = 0
+	} else if conf.MaxRetries == 0 {
 		conf.MaxRetries = 3
 	}
 }
