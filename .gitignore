@@ -13,4 +13,4 @@ config.yaml
 desert.go
 main
 /vendor/
-/examples/db/
+*.db
