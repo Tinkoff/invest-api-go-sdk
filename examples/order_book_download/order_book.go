@@ -102,10 +102,10 @@ func main() {
 	// через них вызывать нужные методы
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		logger.Fatalf("Client creating error %v", err.Error())
+		logger.Fatalf("client creating error %v", err.Error())
 	}
 	defer func() {
-		logger.Infof("Closing client connection")
+		logger.Infof("closing client connection")
 		err := client.Stop()
 		if err != nil {
 			logger.Errorf("client shutdown error %v", err.Error())
@@ -208,7 +208,14 @@ func main() {
 	// читаем стаканы из каналов и преобразуем стакан в нужную структуру
 	wg.Add(1)
 	go func(ctx context.Context) {
-		defer wg.Done()
+		defer func() {
+			// если мы слушаем в одной рутине несколько стримов, то
+			// при завершении (из-за закрытия одного из каналов) нужно остановить все стримы
+			stream1.Stop()
+			stream2.Stop()
+			stream3.Stop()
+			wg.Done()
+		}()
 		for {
 			select {
 			case <-ctx.Done():

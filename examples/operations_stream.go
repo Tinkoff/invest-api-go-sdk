@@ -12,36 +12,35 @@ import (
 )
 
 func main() {
-	// Загружаем конфигурацию для сдк
+	// загружаем конфигурацию для сдк из .yaml файла
 	config, err := investgo.LoadConfig("config.yaml")
 	if err != nil {
 		log.Fatalf("config loading error %v", err.Error())
 	}
-	// контекст будет передан в сдк и будет использоваться для завершения работы
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 	defer cancel()
-
-	// Для примера передадим к качестве логгера uber zap
-	prod, err := zap.NewProduction()
+	// сдк использует для внутреннего логирования investgo.Logger
+	// для примера передадим uber.zap
+	prod := zap.NewExample()
 	defer func() {
 		err := prod.Sync()
 		if err != nil {
 			log.Printf("Prod.Sync %v", err.Error())
 		}
 	}()
-
 	if err != nil {
-		log.Fatalf("logger creating error %e", err)
+		log.Fatalf("logger creating error %v", err)
 	}
 	logger := prod.Sugar()
-
-	// Создаем клиеинта для апи инвестиций, он поддерживает grpc соединение
+	// создаем клиента для investAPI, он позволяет создавать нужные сервисы и уже
+	// через них вызывать нужные методы
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		logger.Fatalf("Client creating error %v", err.Error())
+		logger.Fatalf("client creating error %v", err.Error())
 	}
 	defer func() {
-		logger.Infof("Closing client connection")
+		logger.Infof("closing client connection")
 		err := client.Stop()
 		if err != nil {
 			logger.Errorf("client shutdown error %v", err.Error())
@@ -51,8 +50,10 @@ func main() {
 	// для синхронизации всех горутин
 	wg := &sync.WaitGroup{}
 
+	// создаем клиента для сервиса стримов операций
 	operationsStreamClient := client.NewOperationsStreamClient()
 
+	// в отличие от стримов маркетдаты подписка на информацию происходит один раз при создании стрима
 	positionsStream, err := operationsStreamClient.PositionsStream([]string{config.AccountId})
 	if err != nil {
 		logger.Errorf(err.Error())
@@ -62,13 +63,21 @@ func main() {
 	if err != nil {
 		logger.Errorf(err.Error())
 	}
-	// получаем каналы для чтения
+
+	// получаем каналы для чтения информации из стрима
 	positions := positionsStream.Positions()
 	portfolios := portfolioStream.Portfolios()
 
+	// читаем информацию из каналов
 	wg.Add(1)
 	go func(ctx context.Context) {
-		defer wg.Done()
+		defer func() {
+			// если мы слушаем в одной рутине несколько стримов, то
+			// при завершении (из-за закрытия одного из каналов) нужно остановить все стримы
+			positionsStream.Stop()
+			portfolioStream.Stop()
+			wg.Done()
+		}()
 		for {
 			select {
 			case <-ctx.Done():
@@ -77,16 +86,19 @@ func main() {
 				if !ok {
 					return
 				}
-				fmt.Printf("Position %v", pos.String())
+				fmt.Printf("Position %v\n", pos.String())
 			case port, ok := <-portfolios:
 				if !ok {
 					return
 				}
-				fmt.Printf("Portfolio %v", port.String())
+				fmt.Printf("Portfolio %v\n", port.String())
 			}
 		}
 	}(ctx)
 
+	// функцию Listen нужно вызвать один раз для каждого стрима и в отдельной горутине
+	// для остановки стрима можно использовать метод Stop, он отменяет контекст внутри стрима
+	// после вызова Stop закрываются каналы и завершается функция Listen
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

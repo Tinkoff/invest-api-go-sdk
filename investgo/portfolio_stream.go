@@ -34,7 +34,7 @@ func (p *PortfolioStream) Listen() error {
 			if err != nil {
 				switch {
 				case status.Code(err) == codes.Canceled:
-					p.operationsClient.logger.Infof("Stop listening portfolios")
+					p.operationsClient.logger.Infof("stop listening portfolios")
 					return nil
 				default:
 					return err
@@ -44,7 +44,7 @@ func (p *PortfolioStream) Listen() error {
 				case *pb.PortfolioStreamResponse_Portfolio:
 					p.portfolios <- resp.GetPortfolio()
 				default:
-					p.operationsClient.logger.Infof("Info from Portfolio stream %v", resp.String())
+					p.operationsClient.logger.Infof("info from Portfolio stream %v", resp.String())
 				}
 			}
 		}
@@ -52,11 +52,11 @@ func (p *PortfolioStream) Listen() error {
 }
 
 func (p *PortfolioStream) restart(ctx context.Context, attempt uint, err error) {
-	p.operationsClient.logger.Infof("Try to restart portfolio stream err = %v, attempt = %v", err.Error(), attempt)
+	p.operationsClient.logger.Infof("try to restart portfolio stream err = %v, attempt = %v", err.Error(), attempt)
 }
 
 func (p *PortfolioStream) shutdown() {
-	p.operationsClient.logger.Infof("Close portfolio stream")
+	p.operationsClient.logger.Infof("close portfolio stream")
 	close(p.portfolios)
 }
 

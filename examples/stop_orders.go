@@ -7,38 +7,50 @@ import (
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"go.uber.org/zap"
 	"log"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
 func main() {
-	// Созадем клиента с grpc connection
+	// загружаем конфигурацию для сдк из .yaml файла
 	config, err := investgo.LoadConfig("config.yaml")
 	if err != nil {
 		log.Fatalf("config loading error %v", err.Error())
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 	defer cancel()
-
-	prod, err := zap.NewProduction()
+	// сдк использует для внутреннего логирования investgo.Logger
+	// для примера передадим uber.zap
+	prod := zap.NewExample()
+	defer func() {
+		err := prod.Sync()
+		if err != nil {
+			log.Printf("Prod.Sync %v", err.Error())
+		}
+	}()
 	if err != nil {
-		log.Fatalf("logger creating error %e", err)
+		log.Fatalf("logger creating error %v", err)
 	}
 	logger := prod.Sugar()
-
+	// создаем клиента для investAPI, он позволяет создавать нужные сервисы и уже
+	// через них вызывать нужные методы
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		logger.Fatalf("Client creating error %v", err.Error())
+		logger.Fatalf("client creating error %v", err.Error())
 	}
 	defer func() {
-		logger.Infof("Closing client connection")
+		logger.Infof("closing client connection")
 		err := client.Stop()
 		if err != nil {
-			logger.Errorf(err.Error())
+			logger.Errorf("client shutdown error %v", err.Error())
 		}
 	}()
 
+	// создаем клиента для сервиса стоп-ордеров
 	stopOrdersService := client.NewStopOrdersServiceClient()
+	// создаем клиента для сервиса маркетдаты
 	marketDataService := client.NewMarketDataServiceClient()
 
 	var price *pb.Quotation
@@ -52,7 +64,7 @@ func main() {
 			price = prices[0].GetPrice()
 		}
 	}
-	// Сервис стоп-ордеров работает только на продовом контуре, поэтому нужен токен полного доступа
+	// сервис стоп-ордеров работает только на продовом контуре, поэтому нужен токен полного доступа
 	var orderId string
 	stopOrderResp, err := stopOrdersService.PostStopOrder(&investgo.PostStopOrderRequest{
 		InstrumentId: "BBG004S681W1",

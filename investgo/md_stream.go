@@ -279,12 +279,12 @@ func (mds *MarketDataStream) sendRespToChannel(resp *pb.MarketDataResponse) {
 	case *pb.MarketDataResponse_TradingStatus:
 		mds.tradingStatus <- resp.GetTradingStatus()
 	default:
-		mds.mdsClient.logger.Infof("Info from MD stream %v", resp.String())
+		mds.mdsClient.logger.Infof("info from MD stream %v", resp.String())
 	}
 }
 
 func (mds *MarketDataStream) shutdown() {
-	mds.mdsClient.logger.Infof("Close market data stream")
+	mds.mdsClient.logger.Infof("close market data stream")
 	close(mds.candle)
 	close(mds.trade)
 	close(mds.lastPrice)

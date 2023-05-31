@@ -6,44 +6,46 @@ import (
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	"go.uber.org/zap"
 	"log"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
-	// Загружаем конфигурацию для сдк
+	// загружаем конфигурацию для сдк из .yaml файла
 	config, err := investgo.LoadConfig("config.yaml")
 	if err != nil {
 		log.Fatalf("config loading error %v", err.Error())
 	}
-	// контекст будет передан в сдк и будет использоваться для завершения работы
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
-	// Для примера передадим к качестве логгера uber zap
-	prod, err := zap.NewProduction()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	defer cancel()
+	// сдк использует для внутреннего логирования investgo.Logger
+	// для примера передадим uber.zap
+	prod := zap.NewExample()
 	defer func() {
 		err := prod.Sync()
 		if err != nil {
 			log.Printf("Prod.Sync %v", err.Error())
 		}
 	}()
-
 	if err != nil {
-		log.Fatalf("logger creating error %e", err)
+		log.Fatalf("logger creating error %v", err)
 	}
 	logger := prod.Sugar()
-
-	// Создаем клиента для апи инвестиций, он поддерживает grpc соединение
+	// создаем клиента для investAPI, он позволяет создавать нужные сервисы и уже
+	// через них вызывать нужные методы
 	client, err := investgo.NewClient(ctx, config, logger)
 	if err != nil {
-		logger.Fatalf("Client creating error %v", err.Error())
+		logger.Fatalf("client creating error %v", err.Error())
 	}
 	defer func() {
-		logger.Infof("Closing client connection")
+		logger.Infof("closing client connection")
 		err := client.Stop()
 		if err != nil {
-			logger.Error("client shutdown error %v", err.Error())
+			logger.Errorf("client shutdown error %v", err.Error())
 		}
 	}()
+
 	// создаем клиента для сервиса счетов
 	usersService := client.NewUsersServiceClient()
 
