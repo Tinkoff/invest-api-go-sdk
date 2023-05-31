@@ -34,7 +34,7 @@ func (p *PositionsStream) Listen() error {
 			if err != nil {
 				switch {
 				case status.Code(err) == codes.Canceled:
-					p.operationsClient.logger.Infof("Stop listening positions")
+					p.operationsClient.logger.Infof("stop listening positions")
 					return nil
 				default:
 					return err
@@ -44,7 +44,7 @@ func (p *PositionsStream) Listen() error {
 				case *pb.PositionsStreamResponse_Position:
 					p.positions <- resp.GetPosition()
 				default:
-					p.operationsClient.logger.Infof("Info from Positions stream %v", resp.String())
+					p.operationsClient.logger.Infof("info from Positions stream %v", resp.String())
 				}
 			}
 		}
@@ -56,7 +56,7 @@ func (p *PositionsStream) restart(ctx context.Context, attempt uint, err error) 
 }
 
 func (p *PositionsStream) shutdown() {
-	p.operationsClient.logger.Infof("Close positions stream")
+	p.operationsClient.logger.Infof("close positions stream")
 	close(p.positions)
 }
 

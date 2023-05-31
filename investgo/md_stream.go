@@ -239,6 +239,7 @@ func (mds *MarketDataStream) GetMySubscriptions() error {
 			GetMySubscriptions: &pb.GetMySubscriptions{}}})
 }
 
+// Listen - метод начинает слушать стрим и отправлять информацию в каналы
 func (mds *MarketDataStream) Listen() error {
 	defer mds.shutdown()
 	for {
@@ -278,12 +279,12 @@ func (mds *MarketDataStream) sendRespToChannel(resp *pb.MarketDataResponse) {
 	case *pb.MarketDataResponse_TradingStatus:
 		mds.tradingStatus <- resp.GetTradingStatus()
 	default:
-		mds.mdsClient.logger.Infof("Info from MD stream %v", resp.String())
+		mds.mdsClient.logger.Infof("info from MD stream %v", resp.String())
 	}
 }
 
 func (mds *MarketDataStream) shutdown() {
-	mds.mdsClient.logger.Infof("Close market data stream")
+	mds.mdsClient.logger.Infof("close market data stream")
 	close(mds.candle)
 	close(mds.trade)
 	close(mds.lastPrice)
@@ -365,71 +366,5 @@ func (mds *MarketDataStream) UnSubscribeAll() error {
 }
 
 func (mds *MarketDataStream) restart(ctx context.Context, attempt uint, err error) {
-	mds.mdsClient.logger.Infof("try to restart md stream err = %v, attempt = %v\n", err.Error(), attempt)
-}
-
-func (mds *MarketDataStream) reSubscribeAll() error {
-	ids := make([]string, 0)
-	if len(mds.subs.candles) > 0 {
-		intervals := make(map[pb.SubscriptionInterval][]string, 0)
-
-		for id, interval := range mds.subs.candles {
-			intervals[interval] = append(intervals[interval], id)
-		}
-		for interval, ids := range intervals {
-			_, err := mds.SubscribeCandle(ids, interval)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	if len(mds.subs.trades) > 0 {
-		for id := range mds.subs.trades {
-			ids = append(ids, id)
-		}
-		_, err := mds.SubscribeTrade(ids)
-		if err != nil {
-			return err
-		}
-		ids = nil
-	}
-
-	if len(mds.subs.tradingStatuses) > 0 {
-		for id := range mds.subs.tradingStatuses {
-			ids = append(ids, id)
-		}
-		_, err := mds.SubscribeInfo(ids)
-		if err != nil {
-			return err
-		}
-		ids = nil
-	}
-
-	if len(mds.subs.lastPrices) > 0 {
-		for id := range mds.subs.lastPrices {
-			ids = append(ids, id)
-		}
-		_, err := mds.SubscribeLastPrice(ids)
-		if err != nil {
-			return err
-		}
-	}
-
-	if len(mds.subs.orderBooks) > 0 {
-		orderBooks := make(map[int32][]string, 0)
-
-		for id, depth := range mds.subs.orderBooks {
-			orderBooks[depth] = append(orderBooks[depth], id)
-		}
-
-		for depth, ids := range orderBooks {
-			_, err := mds.SubscribeOrderBook(ids, depth)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	mds.mdsClient.logger.Infof("try to restart md stream err = %v, attempt = %v", err.Error(), attempt)
 }

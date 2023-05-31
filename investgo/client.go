@@ -84,8 +84,12 @@ func setDefaultConfig(conf *Config) {
 	if strings.Compare(conf.AppName, "") == 0 {
 		conf.AppName = "invest-api-go-sdk"
 	}
-
-	if conf.MaxRetries == 0 {
+	if strings.Compare(conf.EndPoint, "") == 0 {
+		conf.EndPoint = "sandbox-invest-public-api.tinkoff.ru:443"
+	}
+	if conf.DisableAllRetry {
+		conf.MaxRetries = 0
+	} else if conf.MaxRetries == 0 {
 		conf.MaxRetries = 3
 	}
 }

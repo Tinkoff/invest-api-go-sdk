@@ -44,7 +44,7 @@ func (t *TradesStream) Listen() error {
 				case *pb.TradesStreamResponse_OrderTrades:
 					t.trades <- resp.GetOrderTrades()
 				default:
-					t.ordersClient.logger.Infof("Info from Trades stream %v", resp.String())
+					t.ordersClient.logger.Infof("info from Trades stream %v", resp.String())
 				}
 			}
 		}
