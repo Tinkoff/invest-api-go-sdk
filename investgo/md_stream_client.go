@@ -45,3 +45,32 @@ func (c *MarketDataStreamClient) MarketDataStream() (*MarketDataStream, error) {
 	mds.stream = stream
 	return mds, nil
 }
+
+// Deprecated: Use MarketDataStreamClient
+type MDStreamClient struct {
+	conn     *grpc.ClientConn
+	config   Config
+	logger   Logger
+	ctx      context.Context
+	pbClient pb.MarketDataStreamServiceClient
+}
+
+// MarketDataStream - метод возвращает стрим биржевой информации
+//
+// Deprecated: Use MarketDataStreamClient.MarketDataStream()
+func (c *MDStreamClient) MarketDataStream() (*MDStream, error) {
+	newStreamClient := &MarketDataStreamClient{
+		conn:     c.conn,
+		config:   c.config,
+		logger:   c.logger,
+		ctx:      c.ctx,
+		pbClient: c.pbClient,
+	}
+	newStream, err := newStreamClient.MarketDataStream()
+	if err != nil {
+		return nil, err
+	}
+	return &MDStream{
+		MarketDataStream: newStream,
+	}, nil
+}
