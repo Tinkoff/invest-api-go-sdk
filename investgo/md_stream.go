@@ -7,6 +7,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Deprecated: Use MarketDataStream
+type MDStream struct {
+	*MarketDataStream
+}
+
+// MarketDataStream - стрим биржевой информации
 type MarketDataStream struct {
 	stream    pb.MarketDataStreamService_MarketDataStreamClient
 	mdsClient *MarketDataStreamClient
