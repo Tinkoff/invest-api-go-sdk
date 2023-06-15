@@ -114,7 +114,7 @@ func UnaryClientInterceptorRE(optFuncs ...CallOption) grpc.UnaryClientIntercepto
 			switch {
 			case status.Code(lastErr) == codes.ResourceExhausted:
 				duration, err := durationFromTrailer(trailer)
-				log.Printf("dur = %v\n", duration.String())
+				log.Printf("Resource Exhausted, sleep for %v...\n", duration.String())
 				if err != nil {
 					return err
 				}
