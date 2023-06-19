@@ -106,13 +106,20 @@ func (e *Executor) SellOut() error {
 	if err != nil {
 		return err
 	}
+	instrumentsService := e.client.NewInstrumentsServiceClient()
 	// TODO for futures and options
 	securities := resp.GetSecurities()
 	for _, security := range securities {
-		if balance := security.GetBalance(); balance < 0 {
+		balance := security.GetBalance()
+		lot, err := instrumentsService.LotByUid(security.GetInstrumentUid())
+		if err != nil {
+			return err
+		}
+		balanceInLots := balance / lot
+		if balance < 0 {
 			resp, err := e.ordersService.Buy(&investgo.PostOrderRequestShort{
 				InstrumentId: security.GetInstrumentUid(),
-				Quantity:     -balance,
+				Quantity:     -balanceInLots,
 				Price:        nil,
 				AccountId:    e.client.Config.AccountId,
 				OrderType:    pb.OrderType_ORDER_TYPE_MARKET,
@@ -125,7 +132,7 @@ func (e *Executor) SellOut() error {
 		} else {
 			resp, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
 				InstrumentId: security.GetInstrumentUid(),
-				Quantity:     balance,
+				Quantity:     balanceInLots,
 				Price:        nil,
 				AccountId:    e.client.Config.AccountId,
 				OrderType:    pb.OrderType_ORDER_TYPE_MARKET,
