@@ -62,9 +62,20 @@ func (b *Bot) Run() error {
 
 	wg := &sync.WaitGroup{}
 
+	instrumentService := b.Client.NewInstrumentsServiceClient()
 	instruments := make(map[string]Instrument, len(b.StrategyConfig.Instruments))
 	for _, instrument := range b.StrategyConfig.Instruments {
-		instruments[instrument] = Instrument{quantity: QUANTITY}
+		// в данном случае ключ это uid, поэтому используем LotByUid()
+		lot, err := instrumentService.LotByUid(instrument)
+		if err != nil {
+			return err
+		}
+		instruments[instrument] = Instrument{
+			quantity: QUANTITY,
+			inStock:  false,
+			buyPrice: 0,
+			lot:      lot,
+		}
 	}
 	lastPrices := make(map[string]float64, len(b.StrategyConfig.Instruments))
 
@@ -139,7 +150,7 @@ func (b *Bot) Run() error {
 		}
 	}(b.ctx)
 
-	// Заверешение работы бота по его контексту: вызов Stop() или отмена по дедлайну
+	// Завершение работы бота по его контексту: вызов Stop() или отмена по дедлайну
 	for {
 		select {
 		case <-b.ctx.Done():

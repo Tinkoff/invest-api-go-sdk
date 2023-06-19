@@ -1,7 +1,6 @@
 package bot
 
 import (
-	"fmt"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 )
@@ -12,6 +11,7 @@ type Instrument struct {
 	quantity int64
 	inStock  bool
 	buyPrice float64
+	lot      int64
 }
 
 type Executor struct {
@@ -20,16 +20,18 @@ type Executor struct {
 	// lastPrices - read only for executor
 	lastPrices map[string]float64
 
-	client        *investgo.Client
-	ordersService *investgo.OrdersServiceClient
+	client            *investgo.Client
+	ordersService     *investgo.OrdersServiceClient
+	operationsService *investgo.OperationsServiceClient
 }
 
 func NewExecutor(c *investgo.Client, ids map[string]Instrument, lp map[string]float64) *Executor {
 	return &Executor{
-		instruments:   ids,
-		lastPrices:    lp,
-		client:        c,
-		ordersService: c.NewOrdersServiceClient(),
+		instruments:       ids,
+		lastPrices:        lp,
+		client:            c,
+		ordersService:     c.NewOrdersServiceClient(),
+		operationsService: c.NewOperationsServiceClient(),
 	}
 }
 
@@ -91,8 +93,8 @@ func (e *Executor) isProfitable(id string) bool {
 	return (e.lastPrices[id] - e.instruments[id].buyPrice) > MIN_PROFIT
 }
 
-func (e *Executor) possibleToBuy() {
-
+func (e *Executor) possibleToBuy(id string) {
+	// required := e.instruments[id].quantity *
 }
 
 func (e *Executor) possibleToSell() {
@@ -101,22 +103,15 @@ func (e *Executor) possibleToSell() {
 
 // SellOut - продать все текущие позиции
 func (e *Executor) SellOut() error {
-	operationsService := e.client.NewOperationsServiceClient()
-	resp, err := operationsService.GetPositions(e.client.Config.AccountId)
+	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
 	if err != nil {
 		return err
 	}
-	instrumentsService := e.client.NewInstrumentsServiceClient()
 	// TODO for futures and options
 	securities := resp.GetSecurities()
 	for _, security := range securities {
-		balance := security.GetBalance()
-		lot, err := instrumentsService.LotByUid(security.GetInstrumentUid())
-		if err != nil {
-			return err
-		}
-		balanceInLots := balance / lot
-		if balance < 0 {
+		balanceInLots := security.GetBalance() / e.instruments[security.GetInstrumentUid()].lot
+		if balanceInLots < 0 {
 			resp, err := e.ordersService.Buy(&investgo.PostOrderRequestShort{
 				InstrumentId: security.GetInstrumentUid(),
 				Quantity:     -balanceInLots,
@@ -126,7 +121,7 @@ func (e *Executor) SellOut() error {
 				OrderId:      investgo.CreateUid(),
 			})
 			if err != nil {
-				fmt.Println(investgo.MessageFromHeader(resp.GetHeader()))
+				e.client.Logger.Errorf(investgo.MessageFromHeader(resp.GetHeader()))
 				return err
 			}
 		} else {
@@ -139,7 +134,7 @@ func (e *Executor) SellOut() error {
 				OrderId:      investgo.CreateUid(),
 			})
 			if err != nil {
-				fmt.Println(investgo.MessageFromHeader(resp.GetHeader()))
+				e.client.Logger.Errorf(investgo.MessageFromHeader(resp.GetHeader()))
 				return err
 			}
 		}
