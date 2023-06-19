@@ -5,8 +5,6 @@ import (
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 )
 
-const MIN_PROFIT = 1
-
 type Instrument struct {
 	quantity int64
 	lot      int32
@@ -18,6 +16,7 @@ type Instrument struct {
 
 type Executor struct {
 	instruments map[string]Instrument
+	minProfit   float64
 
 	// lastPrices - read only for executor
 	lastPrices map[string]float64
@@ -27,21 +26,24 @@ type Executor struct {
 	operationsService *investgo.OperationsServiceClient
 }
 
-func NewExecutor(c *investgo.Client, ids map[string]Instrument, lp map[string]float64) *Executor {
+func NewExecutor(c *investgo.Client, ids map[string]Instrument, lp map[string]float64, minProfit float64) *Executor {
 	return &Executor{
 		instruments:       ids,
 		lastPrices:        lp,
 		client:            c,
 		ordersService:     c.NewOrdersServiceClient(),
 		operationsService: c.NewOperationsServiceClient(),
+		minProfit:         minProfit,
 	}
 }
 
 func (e *Executor) Buy(id string) error {
 	currentInstrument := e.instruments[id]
+	// если этот инструмент уже куплен ботом
 	if currentInstrument.inStock {
 		return nil
 	}
+	// если не хватает средств для покупки
 	if !e.possibleToBuy(id) {
 		return nil
 	}
@@ -95,7 +97,7 @@ func (e *Executor) Sell(id string) error {
 }
 
 func (e *Executor) isProfitable(id string) bool {
-	return (e.lastPrices[id] - e.instruments[id].buyPrice) > MIN_PROFIT
+	return ((e.lastPrices[id]-e.instruments[id].buyPrice)/e.instruments[id].buyPrice)*100 > e.minProfit
 }
 
 func (e *Executor) possibleToBuy(id string) bool {

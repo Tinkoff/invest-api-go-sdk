@@ -84,6 +84,7 @@ func main() {
 		Depth:        20,
 		BuyRatio:     0.5,
 		SellRatio:    0.5,
+		MinProfit:    0.5,
 		SellOut:      true,
 		SellOutAhead: 10 * time.Minute,
 	}

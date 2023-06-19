@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// QUANTITY - Кол-во лотов инструментов, которыми торгует бот
 const QUANTITY = 1
 
 type Bot struct {
@@ -80,7 +81,7 @@ func (b *Bot) Run() error {
 	}
 	lastPrices := make(map[string]float64, len(b.StrategyConfig.Instruments))
 
-	executor := NewExecutor(b.Client, instruments, lastPrices)
+	executor := NewExecutor(b.Client, instruments, lastPrices, b.StrategyConfig.MinProfit)
 	b.executor = executor
 
 	// создаем стратегию
