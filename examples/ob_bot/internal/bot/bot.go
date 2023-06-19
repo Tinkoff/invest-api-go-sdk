@@ -66,7 +66,7 @@ func (b *Bot) Run() error {
 	instruments := make(map[string]Instrument, len(b.StrategyConfig.Instruments))
 	for _, instrument := range b.StrategyConfig.Instruments {
 		// в данном случае ключ это uid, поэтому используем LotByUid()
-		lot, err := instrumentService.LotByUid(instrument)
+		resp, err := instrumentService.InstrumentByUid(instrument)
 		if err != nil {
 			return err
 		}
@@ -74,7 +74,8 @@ func (b *Bot) Run() error {
 			quantity: QUANTITY,
 			inStock:  false,
 			buyPrice: 0,
-			lot:      lot,
+			lot:      resp.GetInstrument().GetLot(),
+			currency: resp.GetInstrument().GetCurrency(),
 		}
 	}
 	lastPrices := make(map[string]float64, len(b.StrategyConfig.Instruments))

@@ -9,9 +9,11 @@ const MIN_PROFIT = 1
 
 type Instrument struct {
 	quantity int64
+	lot      int32
+	currency string
+
 	inStock  bool
 	buyPrice float64
-	lot      int64
 }
 
 type Executor struct {
@@ -94,7 +96,9 @@ func (e *Executor) isProfitable(id string) bool {
 }
 
 func (e *Executor) possibleToBuy(id string) {
-	// required := e.instruments[id].quantity *
+	//required := float64(e.instruments[id].quantity) * float64(e.instruments[id].lot) * e.lastPrices[id]
+	//resp, err := e.operationsService.GetPortfolio(e.client.Config.AccountId, pb.PortfolioRequest_RUB)
+	//err.
 }
 
 func (e *Executor) possibleToSell() {
@@ -110,7 +114,7 @@ func (e *Executor) SellOut() error {
 	// TODO for futures and options
 	securities := resp.GetSecurities()
 	for _, security := range securities {
-		balanceInLots := security.GetBalance() / e.instruments[security.GetInstrumentUid()].lot
+		balanceInLots := security.GetBalance() / int64(e.instruments[security.GetInstrumentUid()].lot)
 		if balanceInLots < 0 {
 			resp, err := e.ordersService.Buy(&investgo.PostOrderRequestShort{
 				InstrumentId: security.GetInstrumentUid(),
