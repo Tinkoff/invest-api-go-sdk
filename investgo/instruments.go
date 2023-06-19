@@ -371,6 +371,24 @@ func (is *InstrumentsServiceClient) InstrumentByPositionUid(id string) (*Instrum
 	return is.instrumentBy(id, pb.InstrumentIdType_INSTRUMENT_ID_TYPE_POSITION_UID, "")
 }
 
+// LotByUid - Метод получения лотности инструмента по его Uid
+func (is *InstrumentsServiceClient) LotByUid(uid string) (int64, error) {
+	resp, err := is.InstrumentByUid(uid)
+	if err != nil {
+		return 0, err
+	}
+	return int64(resp.GetInstrument().GetLot()), nil
+}
+
+// LotByFigi - Метод получения лотности инструмента по его FIGI
+func (is *InstrumentsServiceClient) LotByFigi(figi string) (int64, error) {
+	resp, err := is.InstrumentByFigi(figi)
+	if err != nil {
+		return 0, err
+	}
+	return int64(resp.GetInstrument().GetLot()), nil
+}
+
 func (is *InstrumentsServiceClient) instrumentBy(id string, idType pb.InstrumentIdType, classCode string) (*InstrumentResponse, error) {
 	var header, trailer metadata.MD
 	resp, err := is.pbClient.GetInstrumentBy(is.ctx, &pb.InstrumentRequest{
