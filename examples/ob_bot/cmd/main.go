@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/tinkoff/invest-api-go-sdk/examples/ob_bot/internal/bot"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
@@ -67,7 +66,7 @@ func main() {
 	instrumentIds := make([]string, 0, 300)
 	instrumentspb := instrumentsResp.GetInstruments()
 	for _, instrument := range instrumentspb {
-		if len(instrumentIds) > 99 {
+		if len(instrumentIds) > 19 {
 			break
 		}
 		if strings.Compare(instrument.GetExchange(), "MOEX") == 0 {
@@ -81,27 +80,28 @@ func main() {
 
 	// конфиг стратегии бота на стакане
 	orderBookConfig := bot.OrderBookStrategyConfig{
-		Instruments: instruments,
-		Depth:       20,
-		BuyRatio:    0.5,
-		SellRatio:   0.5,
+		Instruments:  instruments,
+		Depth:        20,
+		BuyRatio:     0.5,
+		SellRatio:    0.5,
+		SellOut:      true,
+		SellOutAhead: 10 * time.Minute,
 	}
 
 	// дедлайн для интрадей торговли
-	//dd, err := tradingDeadLine(client, "MOEX")
-	//if err != nil {
-	//	logger.Fatalf(err.Error())
-	//}
+	dd, err := tradingDeadLine(client, "MOEX")
+	if err != nil {
+		logger.Fatalf(err.Error())
+	}
 
 	// создание и запуск бота
-	botOnOrderBook, err := bot.NewBot(ctx, time.Now().Add(time.Hour), sdkConfig, logger, orderBookConfig)
+	botOnOrderBook, err := bot.NewBot(ctx, dd, sdkConfig, logger, orderBookConfig)
 	if err != nil {
 		logger.Fatalf("bot on order book creating fail %v", err.Error())
 	}
 
 	go func() {
 		<-sigs
-		fmt.Println("try to stop")
 		botOnOrderBook.Stop()
 	}()
 

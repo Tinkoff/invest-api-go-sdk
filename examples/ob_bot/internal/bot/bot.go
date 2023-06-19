@@ -21,11 +21,21 @@ type Bot struct {
 	executor *Executor
 }
 
+// NewBot - Создание экземпляра бота на стакане
+// dd - дедлайн работы бота для интрадей торговли
+// каждый бот создает своего клиента для работы с investAPI
 func NewBot(ctx context.Context, dd time.Time, sdkConf investgo.Config, l investgo.Logger, config OrderBookStrategyConfig) (*Bot, error) {
-	// контекст для клиента с дедлайном
+	// Контекст для клиента с дедлайном. cancelClient - принудительно завершает работу клиента и бота, после отмены контекста
+	// клиента невозможно выполнить никакие запросы к апи.
 	clientCtx, cancelClient := context.WithDeadline(ctx, dd)
-	// контекст для бота - потомок контекста клиента
+	// Контекст для бота - потомок контекста клиента. cancelBot - завершает работу стратегии и чтение из стрима, т.е
+	// всей функции Run, но при этом остается активным клиент для апи.
 	botCtx, cancelBot := context.WithCancel(clientCtx)
+	// если нужно выходить из позиций, то бот будет завершать свою работу раньше чем дедлайн
+	if config.SellOut {
+		botCtx, cancelBot = context.WithDeadline(botCtx, dd.Add(-config.SellOutAhead))
+	}
+
 	c, err := investgo.NewClient(clientCtx, sdkConf, l)
 	if err != nil {
 		cancelClient()
@@ -41,6 +51,7 @@ func NewBot(ctx context.Context, dd time.Time, sdkConf investgo.Config, l invest
 	}, nil
 }
 
+// Run - Запуск бота
 func (b *Bot) Run() error {
 	defer func() {
 		err := b.shutdown()
@@ -96,6 +107,7 @@ func (b *Bot) Run() error {
 	go func(ctx context.Context) {
 		defer func() {
 			close(orderBooks)
+			stream.Stop()
 			wg.Done()
 		}()
 		for {
@@ -127,28 +139,41 @@ func (b *Bot) Run() error {
 		}
 	}(b.ctx)
 
-	wg.Wait()
+	// Заверешение работы бота по его контексту: вызов Stop() или отмена по дедлайну
+	for {
+		select {
+		case <-b.ctx.Done():
+			b.Client.Logger.Infof("stop bot on order book...")
 
+			if b.StrategyConfig.SellOut {
+				b.Client.Logger.Infof("start positions sell out...")
+				err := b.executor.SellOut()
+				if err != nil {
+					return err
+				}
+			}
+
+			stream.Stop()
+
+			break
+		}
+		break
+	}
+
+	wg.Wait()
 	return nil
 }
 
 func (b *Bot) shutdown() error {
 	// TODO positions sell and client shutdown
+	// если Run завершился с ошибкой, то эта функция отменит контекст клиента, внутри бота и закроет соединение
+	b.cancelClient()
 	return b.Client.Stop()
 }
 
-// Stop - принудительное завершение работы бота
+// Stop - Принудительное завершение работы бота, если = true, то бот выходит из всех активных позиций по счету
 func (b *Bot) Stop() {
-	// в конце убиваем клиента
-	defer b.cancelClient()
-	// сначала завершаем работу стратегии (всех рутин от бота)
-	b.Client.Logger.Infof("Stop bot on order book...")
 	b.cancelBot()
-	err := b.executor.SellOut()
-	if err != nil {
-		b.Client.Logger.Errorf(err.Error())
-	}
-	// TODO graceful stop
 }
 
 func (b *Bot) BackTest() error {

@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"time"
 )
 
 type OrderBookStrategyConfig struct {
@@ -11,6 +12,11 @@ type OrderBookStrategyConfig struct {
 	BuyRatio float64
 	//  Если кол-во бид/аск меньше чем SellRatio - продаем
 	SellRatio float64
+	// SellOut - если true, то по достижению дедлайна бот выходит из всех активных позиций
+	SellOut bool
+	// (Дедлайн интрадей торговли - SellOutAheadMin) - это момент времени, когда бот начнет продавать
+	// все активные позиции
+	SellOutAhead time.Duration
 }
 
 type OrderBookStrategy struct {
