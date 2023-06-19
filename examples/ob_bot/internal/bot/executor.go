@@ -42,6 +42,9 @@ func (e *Executor) Buy(id string) error {
 	if currentInstrument.inStock {
 		return nil
 	}
+	if !e.possibleToBuy(id) {
+		return nil
+	}
 	resp, err := e.ordersService.Buy(&investgo.PostOrderRequestShort{
 		InstrumentId: id,
 		Quantity:     currentInstrument.quantity,
@@ -95,10 +98,23 @@ func (e *Executor) isProfitable(id string) bool {
 	return (e.lastPrices[id] - e.instruments[id].buyPrice) > MIN_PROFIT
 }
 
-func (e *Executor) possibleToBuy(id string) {
-	//required := float64(e.instruments[id].quantity) * float64(e.instruments[id].lot) * e.lastPrices[id]
-	//resp, err := e.operationsService.GetPortfolio(e.client.Config.AccountId, pb.PortfolioRequest_RUB)
-	//err.
+func (e *Executor) possibleToBuy(id string) bool {
+	// требуемая сумма для покупки
+	// кол-во лотов * лотность * стоимость 1 инструмента
+	required := float64(e.instruments[id].quantity) * float64(e.instruments[id].lot) * e.lastPrices[id]
+	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
+	if err != nil {
+		e.client.Logger.Errorf(err.Error())
+	}
+	money := resp.GetMoney()
+	var moneyInFloat float64
+	for _, m := range money {
+		if m.GetCurrency() == e.instruments[id].currency {
+			moneyInFloat = m.ToFloat()
+		}
+	}
+	// TODO сравнение дробных чисел
+	return moneyInFloat > required
 }
 
 func (e *Executor) possibleToSell() {
