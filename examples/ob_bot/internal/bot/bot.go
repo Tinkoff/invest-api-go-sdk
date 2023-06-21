@@ -11,6 +11,22 @@ import (
 // QUANTITY - Кол-во лотов инструментов, которыми торгует бот
 const QUANTITY = 1
 
+type OrderBookStrategyConfig struct {
+	Instruments []string
+	Depth       int32
+	//  Если кол-во бид/аск больше чем BuyRatio - покупаем
+	BuyRatio float64
+	//  Если кол-во бид/аск меньше чем SellRatio - продаем
+	SellRatio float64
+	// MinProfit - Минимальный процент выгоды, с которым можно совершать сделки
+	MinProfit float64
+	// SellOut - если true, то по достижению дедлайна бот выходит из всех активных позиций
+	SellOut bool
+	// (Дедлайн интрадей торговли - SellOutAheadMin) - это момент времени, когда бот начнет продавать
+	// все активные позиции
+	SellOutAhead time.Duration
+}
+
 type Bot struct {
 	StrategyConfig OrderBookStrategyConfig
 	Client         *investgo.Client
@@ -84,21 +100,18 @@ func (b *Bot) Run() error {
 	executor := NewExecutor(b.Client, instruments, lastPrices, b.StrategyConfig.MinProfit)
 	b.executor = executor
 
-	// создаем стратегию
-	s := NewOrderBookStrategy(b.StrategyConfig, executor)
-
 	// инфраструктура для работы стратегии: запрос, получение, преобразование рыночных данных
 	MarketDataStreamService := b.Client.NewMarketDataStreamClient()
 	stream, err := MarketDataStreamService.MarketDataStream()
 	if err != nil {
 		return err
 	}
-	pbOrderBooks, err := stream.SubscribeOrderBook(s.config.Instruments, s.config.Depth)
+	pbOrderBooks, err := stream.SubscribeOrderBook(b.StrategyConfig.Instruments, b.StrategyConfig.Depth)
 	if err != nil {
 		return err
 	}
 
-	lastPricesChan, err := stream.SubscribeLastPrice(s.config.Instruments)
+	lastPricesChan, err := stream.SubscribeLastPrice(b.StrategyConfig.Instruments)
 	if err != nil {
 		return err
 	}
@@ -146,7 +159,7 @@ func (b *Bot) Run() error {
 	wg.Add(1)
 	go func(ctx context.Context) {
 		defer wg.Done()
-		err := s.HandleOrderBooks(ctx, orderBooks)
+		err := b.HandleOrderBooks(ctx, orderBooks)
 		if err != nil {
 			b.Client.Logger.Errorf(err.Error())
 		}
@@ -192,6 +205,51 @@ func (b *Bot) Stop() {
 func (b *Bot) BackTest() error {
 	// качаем из бд стаканы сбера и испытываем стратегию
 	return nil
+}
+
+// HandleOrderBooks - нужно вызвать асинхронно, будет писать в канал id инструментов, которые нужно купить или продать
+func (b *Bot) HandleOrderBooks(ctx context.Context, orderBooks chan OrderBook) error {
+	var totalProfit float64
+	defer b.Client.Logger.Infof("total profit = %.9f", totalProfit)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case ob, ok := <-orderBooks:
+			if !ok {
+				return nil
+			}
+			ratio := b.checkRatio(ob)
+			if ratio > b.StrategyConfig.BuyRatio {
+				err := b.executor.Buy(ob.InstrumentUid)
+				if err != nil {
+					return err
+				}
+			} else if 1/ratio > b.StrategyConfig.SellRatio {
+				profit, err := b.executor.Sell(ob.InstrumentUid)
+				if err != nil {
+					return err
+				}
+				b.Client.Logger.Infof("profit = %.9f", profit)
+				totalProfit += profit
+			}
+		}
+	}
+}
+
+// checkRate - возвращает значения коэффициента count(ask) / count(bid)
+func (b *Bot) checkRatio(ob OrderBook) float64 {
+	sell := ordersCount(ob.Asks)
+	buy := ordersCount(ob.Bids)
+	return float64(buy) / float64(sell)
+}
+
+func ordersCount(o []Order) int64 {
+	var count int64
+	for _, order := range o {
+		count += order.Quantity
+	}
+	return count
 }
 
 // Преобразование стакана в нужный формат
