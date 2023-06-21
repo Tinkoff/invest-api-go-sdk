@@ -15,6 +15,11 @@ import (
 	"time"
 )
 
+const (
+	SHARES_NUM = 20
+	EXCHANGE   = "MOEX"
+)
+
 func main() {
 	// загружаем конфигурацию для сдк из .yaml файла
 	sdkConfig, err := investgo.LoadConfig("config.yaml")
@@ -62,14 +67,15 @@ func main() {
 	if err != nil {
 		logger.Errorf(err.Error())
 	}
-	// слайс идентификаторов торговых инструментов
+	// слайс идентификаторов торговых инструментов instrument_uid
+	// акции с московской биржи
 	instrumentIds := make([]string, 0, 300)
 	instrumentspb := instrumentsResp.GetInstruments()
 	for _, instrument := range instrumentspb {
-		if len(instrumentIds) > 19 {
+		if len(instrumentIds) > SHARES_NUM-1 {
 			break
 		}
-		if strings.Compare(instrument.GetExchange(), "MOEX") == 0 {
+		if strings.Compare(instrument.GetExchange(), EXCHANGE) == 0 {
 			instrumentIds = append(instrumentIds, instrument.GetUid())
 		}
 	}
