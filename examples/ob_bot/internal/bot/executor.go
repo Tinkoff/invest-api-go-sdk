@@ -67,13 +67,13 @@ func (e *Executor) Buy(id string) error {
 	return nil
 }
 
-func (e *Executor) Sell(id string) error {
+func (e *Executor) Sell(id string) (float64, error) {
 	currentInstrument := e.instruments[id]
 	if !currentInstrument.inStock {
-		return nil
+		return 0, nil
 	}
 	if profitable := e.isProfitable(id); !profitable {
-		return nil
+		return 0, nil
 	}
 
 	resp, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
@@ -85,15 +85,16 @@ func (e *Executor) Sell(id string) error {
 		OrderId:      investgo.CreateUid(),
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
+	var profit float64
 	if resp.GetExecutionReportStatus() == pb.OrderExecutionReportStatus_EXECUTION_REPORT_STATUS_FILL {
 		currentInstrument.inStock = false
-		e.client.Logger.Infof("profit = %.9f", resp.GetExecutedOrderPrice().ToFloat()-currentInstrument.buyPrice)
+		profit = resp.GetExecutedOrderPrice().ToFloat() - currentInstrument.buyPrice
 	}
 	e.client.Logger.Infof("Sell with %v, price %v", resp.GetFigi(), resp.GetExecutedOrderPrice().ToFloat())
 	e.instruments[id] = currentInstrument
-	return nil
+	return profit, nil
 }
 
 func (e *Executor) isProfitable(id string) bool {
