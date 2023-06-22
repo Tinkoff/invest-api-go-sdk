@@ -96,13 +96,13 @@ func main() {
 	}
 
 	// дедлайн для интрадей торговли
-	dd, err := tradingDeadLine(client, "MOEX")
+	dd, err := tradingDeadLine(client, EXCHANGE)
 	if err != nil {
 		logger.Fatalf(err.Error())
 	}
 
 	// создание и запуск бота
-	botOnOrderBook, err := bot.NewBot(ctx, dd, sdkConfig, logger, orderBookConfig)
+	botOnOrderBook, err := bot.NewBot(ctx, client, dd, orderBookConfig)
 	if err != nil {
 		logger.Fatalf("bot on order book creating fail %v", err.Error())
 	}

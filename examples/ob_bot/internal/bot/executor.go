@@ -133,7 +133,16 @@ func (e *Executor) SellOut() error {
 	// TODO for futures and options
 	securities := resp.GetSecurities()
 	for _, security := range securities {
-		balanceInLots := security.GetBalance() / int64(e.instruments[security.GetInstrumentUid()].lot)
+		var lot int64
+		instrument, ok := e.instruments[security.GetInstrumentUid()]
+		if !ok {
+			// если бот не открывал эту позицию, он не будет ее закрывать
+			e.client.Logger.Infof("%v not found in executor instruments map", security.GetInstrumentUid())
+			continue
+		} else {
+			lot = int64(instrument.lot)
+		}
+		balanceInLots := security.GetBalance() / lot
 		if balanceInLots < 0 {
 			resp, err := e.ordersService.Buy(&investgo.PostOrderRequestShort{
 				InstrumentId: security.GetInstrumentUid(),
@@ -161,7 +170,6 @@ func (e *Executor) SellOut() error {
 				return err
 			}
 		}
-
 	}
 	return nil
 }

@@ -11,16 +11,19 @@ import (
 // QUANTITY - Кол-во лотов инструментов, которыми торгует бот
 const QUANTITY = 1
 
+// OrderBookStrategyConfig - Конфигурация стратегии на стакане
 type OrderBookStrategyConfig struct {
+	// Instruments - слайс идентификаторов инструментов
 	Instruments []string
-	Depth       int32
+	// Depth - Глубина стакана
+	Depth int32
 	//  Если кол-во бид/аск больше чем BuyRatio - покупаем
 	BuyRatio float64
 	//  Если кол-во бид/аск меньше чем SellRatio - продаем
 	SellRatio float64
 	// MinProfit - Минимальный процент выгоды, с которым можно совершать сделки
 	MinProfit float64
-	// SellOut - если true, то по достижению дедлайна бот выходит из всех активных позиций
+	// SellOut - Если true, то по достижению дедлайна бот выходит из всех активных позиций
 	SellOut bool
 	// (Дедлайн интрадей торговли - SellOutAheadMin) - это момент времени, когда бот начнет продавать
 	// все активные позиции
@@ -31,9 +34,8 @@ type Bot struct {
 	StrategyConfig OrderBookStrategyConfig
 	Client         *investgo.Client
 
-	ctx          context.Context
-	cancelClient context.CancelFunc
-	cancelBot    context.CancelFunc
+	ctx       context.Context
+	cancelBot context.CancelFunc
 
 	executor *Executor
 }
@@ -41,46 +43,28 @@ type Bot struct {
 // NewBot - Создание экземпляра бота на стакане
 // dd - дедлайн работы бота для интрадей торговли
 // каждый бот создает своего клиента для работы с investAPI
-func NewBot(ctx context.Context, dd time.Time, sdkConf investgo.Config, l investgo.Logger, config OrderBookStrategyConfig) (*Bot, error) {
-	// Контекст для клиента с дедлайном. cancelClient - принудительно завершает работу клиента и бота, после отмены контекста
-	// клиента невозможно выполнить никакие запросы к апи.
-	clientCtx, cancelClient := context.WithDeadline(ctx, dd)
-	// Контекст для бота - потомок контекста клиента. cancelBot - завершает работу стратегии и чтение из стрима, т.е
-	// всей функции Run, но при этом остается активным клиент для апи.
-	botCtx, cancelBot := context.WithCancel(clientCtx)
+func NewBot(ctx context.Context, c *investgo.Client, dd time.Time, config OrderBookStrategyConfig) (*Bot, error) {
+	botCtx, cancelBot := context.WithDeadline(ctx, dd)
 	// если нужно выходить из позиций, то бот будет завершать свою работу раньше чем дедлайн
 	if config.SellOut {
 		botCtx, cancelBot = context.WithDeadline(botCtx, dd.Add(-config.SellOutAhead))
 	}
 
-	c, err := investgo.NewClient(clientCtx, sdkConf, l)
-	if err != nil {
-		cancelClient()
-		cancelBot()
-		return nil, err
-	}
 	return &Bot{
 		Client:         c,
 		StrategyConfig: config,
 		ctx:            botCtx,
 		cancelBot:      cancelBot,
-		cancelClient:   cancelClient,
 	}, nil
 }
 
 // Run - Запуск бота
 func (b *Bot) Run() error {
-	defer func() {
-		err := b.shutdown()
-		if err != nil {
-			b.Client.Logger.Errorf("bot shutdown: %v", err.Error())
-		}
-	}()
-
 	wg := &sync.WaitGroup{}
 
 	instrumentService := b.Client.NewInstrumentsServiceClient()
 	instruments := make(map[string]Instrument, len(b.StrategyConfig.Instruments))
+
 	for _, instrument := range b.StrategyConfig.Instruments {
 		// в данном случае ключ это uid, поэтому используем LotByUid()
 		resp, err := instrumentService.InstrumentByUid(instrument)
@@ -126,14 +110,12 @@ func (b *Bot) Run() error {
 	}()
 
 	orderBooks := make(chan OrderBook)
-	// defer close(orderBooks)
+	defer close(orderBooks)
 
 	// чтение из стрима
 	wg.Add(1)
 	go func(ctx context.Context) {
 		defer func() {
-			close(orderBooks)
-			stream.Stop()
 			wg.Done()
 		}()
 		for {
@@ -166,45 +148,27 @@ func (b *Bot) Run() error {
 	}(b.ctx)
 
 	// Завершение работы бота по его контексту: вызов Stop() или отмена по дедлайну
-	for {
-		select {
-		case <-b.ctx.Done():
-			b.Client.Logger.Infof("stop bot on order book...")
+	<-b.ctx.Done()
+	b.Client.Logger.Infof("stop bot on order book...")
 
-			if b.StrategyConfig.SellOut {
-				b.Client.Logger.Infof("start positions sell out...")
-				err := b.executor.SellOut()
-				if err != nil {
-					return err
-				}
-			}
+	// стримы работают на контексте клиента, завершать их нужно явно
+	stream.Stop()
 
-			stream.Stop()
-
-			break
+	if b.StrategyConfig.SellOut {
+		b.Client.Logger.Infof("start positions sell out...")
+		err := b.executor.SellOut()
+		if err != nil {
+			return err
 		}
-		break
 	}
 
 	wg.Wait()
 	return nil
 }
 
-func (b *Bot) shutdown() error {
-	// TODO positions sell and client shutdown
-	// если Run завершился с ошибкой, то эта функция отменит контекст клиента, внутри бота и закроет соединение
-	b.cancelClient()
-	return b.Client.Stop()
-}
-
 // Stop - Принудительное завершение работы бота, если = true, то бот выходит из всех активных позиций по счету
 func (b *Bot) Stop() {
 	b.cancelBot()
-}
-
-func (b *Bot) BackTest() error {
-	// качаем из бд стаканы сбера и испытываем стратегию
-	return nil
 }
 
 // HandleOrderBooks - нужно вызвать асинхронно, будет писать в канал id инструментов, которые нужно купить или продать
@@ -230,11 +194,14 @@ func (b *Bot) HandleOrderBooks(ctx context.Context, orderBooks chan OrderBook) e
 				if err != nil {
 					return err
 				}
-				b.Client.Logger.Infof("profit = %.9f", profit)
-				totalProfit += profit
+				if profit > 0 {
+					b.Client.Logger.Infof("profit = %.9f", profit)
+					totalProfit += profit
+				}
 			}
 		}
 	}
+
 }
 
 // checkRate - возвращает значения коэффициента count(ask) / count(bid)
