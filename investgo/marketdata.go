@@ -7,7 +7,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -251,7 +250,7 @@ func selectDuration(interval pb.CandleInterval) time.Duration {
 // Метод записи в .csv файл исторических свечей в формате instrumentId;time;open;close;high;low;volume
 func (md *MarketDataServiceClient) writeCandlesToFile(candles []*pb.HistoricCandle, id string, filename string) error {
 	h, m, s := time.Now().Clock()
-	if strings.Compare(filename, "") == 0 {
+	if filename == "" {
 		filename = fmt.Sprintf("candles %v:%v:%v", h, m, s)
 	}
 

@@ -12,7 +12,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/oauth"
 	"google.golang.org/grpc/metadata"
-	"strings"
 	"time"
 )
 
@@ -92,10 +91,10 @@ func NewClient(ctx context.Context, conf Config, l Logger) (*Client, error) {
 }
 
 func setDefaultConfig(conf *Config) {
-	if strings.Compare(conf.AppName, "") == 0 {
+	if conf.AppName == "" {
 		conf.AppName = "invest-api-go-sdk"
 	}
-	if strings.Compare(conf.EndPoint, "") == 0 {
+	if conf.EndPoint == "" {
 		conf.EndPoint = "sandbox-invest-public-api.tinkoff.ru:443"
 	}
 	if conf.DisableAllRetry {
