@@ -286,6 +286,8 @@ func (is *InstrumentsServiceClient) optionBy(id string, idType pb.InstrumentIdTy
 }
 
 // Options - Метод получения списка опционов
+//
+// Deprecated: Do not use
 func (is *InstrumentsServiceClient) Options(status pb.InstrumentStatus) (*OptionsResponse, error) {
 	var header, trailer metadata.MD
 	resp, err := is.pbClient.Options(is.ctx, &pb.InstrumentsRequest{
