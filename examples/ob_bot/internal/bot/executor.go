@@ -6,19 +6,26 @@ import (
 )
 
 type Instrument struct {
+	// quantity - Количество лотов, которое покупает/продает исполнитель за 1 поручение
 	quantity int64
-	lot      int32
+	// lot - Лотность инструмента
+	lot int32
+	// currency - Код валюты инструмента
 	currency string
-
-	inStock  bool
-	buyPrice float64
+	// inStock - Флаг открытой позиции по инструменту, если true - позиция открыта
+	inStock bool
+	// entryPrice - После открытия позиции, сохраняется цена этой сделки
+	entryPrice float64
 }
 
+// Executor - Вызывается ботом и исполняет торговые поручения
 type Executor struct {
+	// instruments - Инструменты, которыми торгует исполнитель
 	instruments map[string]Instrument
-	minProfit   float64
+	// minProfit - Процент минимального профита, после которого выставляются рыночные заявки
+	minProfit float64
 
-	// lastPrices - read only for executor
+	// lastPrices - Мапа последних цен по инструментам, бот в нее пишет, исполнитель читает
 	lastPrices map[string]float64
 
 	client            *investgo.Client
@@ -26,6 +33,7 @@ type Executor struct {
 	operationsService *investgo.OperationsServiceClient
 }
 
+// NewExecutor - Создание экземпляра исполнителя
 func NewExecutor(c *investgo.Client, ids map[string]Instrument, lp map[string]float64, minProfit float64) *Executor {
 	return &Executor{
 		instruments:       ids,
@@ -37,6 +45,7 @@ func NewExecutor(c *investgo.Client, ids map[string]Instrument, lp map[string]fl
 	}
 }
 
+// Buy - Метод покупки инструмента с идентификатором id
 func (e *Executor) Buy(id string) error {
 	currentInstrument := e.instruments[id]
 	// если этот инструмент уже куплен ботом
@@ -60,13 +69,14 @@ func (e *Executor) Buy(id string) error {
 	}
 	if resp.GetExecutionReportStatus() == pb.OrderExecutionReportStatus_EXECUTION_REPORT_STATUS_FILL {
 		currentInstrument.inStock = true
-		currentInstrument.buyPrice = resp.GetExecutedOrderPrice().ToFloat()
+		currentInstrument.entryPrice = resp.GetExecutedOrderPrice().ToFloat()
 	}
 	e.instruments[id] = currentInstrument
 	e.client.Logger.Infof("Buy with %v, price %v", resp.GetFigi(), resp.GetExecutedOrderPrice().ToFloat())
 	return nil
 }
 
+// Sell - Метод покупки инструмента с идентификатором id
 func (e *Executor) Sell(id string) (float64, error) {
 	currentInstrument := e.instruments[id]
 	if !currentInstrument.inStock {
@@ -90,7 +100,7 @@ func (e *Executor) Sell(id string) (float64, error) {
 	var profit float64
 	if resp.GetExecutionReportStatus() == pb.OrderExecutionReportStatus_EXECUTION_REPORT_STATUS_FILL {
 		currentInstrument.inStock = false
-		profit = resp.GetExecutedOrderPrice().ToFloat() - currentInstrument.buyPrice
+		profit = resp.GetExecutedOrderPrice().ToFloat() - currentInstrument.entryPrice
 	}
 	e.client.Logger.Infof("Sell with %v, price %v", resp.GetFigi(), resp.GetExecutedOrderPrice().ToFloat())
 	e.instruments[id] = currentInstrument
@@ -98,7 +108,7 @@ func (e *Executor) Sell(id string) (float64, error) {
 }
 
 func (e *Executor) isProfitable(id string) bool {
-	return ((e.lastPrices[id]-e.instruments[id].buyPrice)/e.instruments[id].buyPrice)*100 > e.minProfit
+	return ((e.lastPrices[id]-e.instruments[id].entryPrice)/e.instruments[id].entryPrice)*100 > e.minProfit
 }
 
 func (e *Executor) possibleToBuy(id string) bool {
@@ -124,7 +134,7 @@ func (e *Executor) possibleToSell() {
 
 }
 
-// SellOut - продать все текущие позиции
+// SellOut - Метод выхода из всех текущих позиций
 func (e *Executor) SellOut() error {
 	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
 	if err != nil {

@@ -61,7 +61,7 @@ func NewBot(ctx context.Context, c *investgo.Client, dd time.Time, config OrderB
 // Run - Запуск бота
 func (b *Bot) Run() error {
 	wg := &sync.WaitGroup{}
-
+	// по конфигу стратегии заполняем map для executor
 	instrumentService := b.Client.NewInstrumentsServiceClient()
 	instruments := make(map[string]Instrument, len(b.StrategyConfig.Instruments))
 
@@ -72,11 +72,11 @@ func (b *Bot) Run() error {
 			return err
 		}
 		instruments[instrument] = Instrument{
-			quantity: QUANTITY,
-			inStock:  false,
-			buyPrice: 0,
-			lot:      resp.GetInstrument().GetLot(),
-			currency: resp.GetInstrument().GetCurrency(),
+			quantity:   QUANTITY,
+			inStock:    false,
+			entryPrice: 0,
+			lot:        resp.GetInstrument().GetLot(),
+			currency:   resp.GetInstrument().GetCurrency(),
 		}
 	}
 	lastPrices := make(map[string]float64, len(b.StrategyConfig.Instruments))
@@ -141,10 +141,11 @@ func (b *Bot) Run() error {
 	wg.Add(1)
 	go func(ctx context.Context) {
 		defer wg.Done()
-		err := b.HandleOrderBooks(ctx, orderBooks)
+		profit, err := b.HandleOrderBooks(ctx, orderBooks)
 		if err != nil {
 			b.Client.Logger.Errorf(err.Error())
 		}
+		b.Client.Logger.Infof("profit by strategy = %v", profit)
 	}(b.ctx)
 
 	// Завершение работы бота по его контексту: вызов Stop() или отмена по дедлайну
@@ -166,33 +167,32 @@ func (b *Bot) Run() error {
 	return nil
 }
 
-// Stop - Принудительное завершение работы бота, если = true, то бот выходит из всех активных позиций по счету
+// Stop - Принудительное завершение работы бота, если SellOut = true, то бот выходит из всех активных позиций, которые он открыл
 func (b *Bot) Stop() {
 	b.cancelBot()
 }
 
 // HandleOrderBooks - нужно вызвать асинхронно, будет писать в канал id инструментов, которые нужно купить или продать
-func (b *Bot) HandleOrderBooks(ctx context.Context, orderBooks chan OrderBook) error {
+func (b *Bot) HandleOrderBooks(ctx context.Context, orderBooks chan OrderBook) (float64, error) {
 	var totalProfit float64
-	defer b.Client.Logger.Infof("total profit = %.9f", totalProfit)
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return totalProfit, nil
 		case ob, ok := <-orderBooks:
 			if !ok {
-				return nil
+				return totalProfit, nil
 			}
 			ratio := b.checkRatio(ob)
 			if ratio > b.StrategyConfig.BuyRatio {
 				err := b.executor.Buy(ob.InstrumentUid)
 				if err != nil {
-					return err
+					return totalProfit, err
 				}
 			} else if 1/ratio > b.StrategyConfig.SellRatio {
 				profit, err := b.executor.Sell(ob.InstrumentUid)
 				if err != nil {
-					return err
+					return totalProfit, err
 				}
 				if profit > 0 {
 					b.Client.Logger.Infof("profit = %.9f", profit)
@@ -201,7 +201,6 @@ func (b *Bot) HandleOrderBooks(ctx context.Context, orderBooks chan OrderBook) e
 			}
 		}
 	}
-
 }
 
 // checkRate - возвращает значения коэффициента count(ask) / count(bid)
@@ -219,7 +218,7 @@ func ordersCount(o []Order) int64 {
 	return count
 }
 
-// Преобразование стакана в нужный формат
+// transformOrderBook - Преобразование стакана в нужный формат
 func transformOrderBook(input *pb.OrderBook) OrderBook {
 	depth := input.GetDepth()
 	bids := make([]Order, 0, depth)

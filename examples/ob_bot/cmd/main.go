@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	SHARES_NUM = 20
-	EXCHANGE   = "MOEX"
+	// SHARES_NUM - Количество акций для торгов
+	SHARES_NUM = 50
+	// EXCHANGE - Биржа на которой будет работать бот
+	EXCHANGE = "MOEX"
 )
 
 func main() {
@@ -70,13 +72,13 @@ func main() {
 	// слайс идентификаторов торговых инструментов instrument_uid
 	// акции с московской биржи
 	instrumentIds := make([]string, 0, 300)
-	instrumentspb := instrumentsResp.GetInstruments()
-	for _, instrument := range instrumentspb {
+	shares := instrumentsResp.GetInstruments()
+	for _, share := range shares {
 		if len(instrumentIds) > SHARES_NUM-1 {
 			break
 		}
-		if strings.Compare(instrument.GetExchange(), EXCHANGE) == 0 {
-			instrumentIds = append(instrumentIds, instrument.GetUid())
+		if strings.Compare(share.GetExchange(), EXCHANGE) == 0 {
+			instrumentIds = append(instrumentIds, share.GetUid())
 		}
 	}
 	logger.Infof("got %v instruments\n", len(instrumentIds))
