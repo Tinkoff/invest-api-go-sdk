@@ -90,8 +90,8 @@ func main() {
 	orderBookConfig := bot.OrderBookStrategyConfig{
 		Instruments:  instruments,
 		Depth:        20,
-		BuyRatio:     0.5,
-		SellRatio:    0.5,
+		BuyRatio:     2,
+		SellRatio:    2,
 		MinProfit:    0.5,
 		SellOut:      true,
 		SellOutAhead: 10 * time.Minute,
