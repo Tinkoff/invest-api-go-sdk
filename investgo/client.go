@@ -72,12 +72,23 @@ func NewClient(ctx context.Context, conf Config, l Logger) (*Client, error) {
 		return nil, err
 	}
 
-	return &Client{
+	client := &Client{
 		conn:   conn,
 		Config: conf,
 		Logger: l,
 		ctx:    ctx,
-	}, nil
+	}
+
+	if conf.AccountId == "" {
+		s := client.NewSandboxServiceClient()
+		resp, err := s.OpenSandboxAccount()
+		if err != nil {
+			return nil, err
+		}
+		client.Config.AccountId = resp.GetAccountId()
+	}
+
+	return client, nil
 }
 
 func setDefaultConfig(conf *Config) {
