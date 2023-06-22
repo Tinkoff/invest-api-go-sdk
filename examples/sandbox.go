@@ -8,7 +8,6 @@ import (
 	"go.uber.org/zap"
 	"log"
 	"os/signal"
-	"strings"
 	"syscall"
 )
 
@@ -98,7 +97,7 @@ func main() {
 	} else {
 		instruments := instrumentResp.GetInstruments()
 		for _, instrument := range instruments {
-			if strings.Compare(instrument.GetTicker(), "TCSG") == 0 {
+			if instrument.GetTicker() == "TCSG" {
 				id = instrument.GetUid()
 			}
 		}

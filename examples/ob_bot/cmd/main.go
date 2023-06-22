@@ -10,7 +10,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -77,7 +76,7 @@ func main() {
 		if len(instrumentIds) > SHARES_NUM-1 {
 			break
 		}
-		if strings.Compare(share.GetExchange(), EXCHANGE) == 0 {
+		if share.GetExchange() == EXCHANGE {
 			instrumentIds = append(instrumentIds, share.GetUid())
 		}
 	}
@@ -136,7 +135,7 @@ func tradingDeadLine(client *investgo.Client, exchange string) (time.Time, error
 	exchanges := resp.GetExchanges()
 	for _, exch := range exchanges {
 		// если нужная биржа
-		if strings.Compare(exch.GetExchange(), exchange) == 0 {
+		if exch.GetExchange() == exchange {
 			for _, day := range exch.GetDays() {
 				// если день совпадает с днем запроса
 				if from.Day() == day.GetDate().AsTime().Day() {
