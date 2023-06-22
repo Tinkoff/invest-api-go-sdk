@@ -29,8 +29,13 @@ type MarketDataStream struct {
 	subs subscriptions
 }
 
+type candleSub struct {
+	interval     pb.SubscriptionInterval
+	waitingClose bool
+}
+
 type subscriptions struct {
-	candles         map[string]pb.SubscriptionInterval
+	candles         map[string]candleSub
 	orderBooks      map[string]int32
 	trades          map[string]struct{}
 	tradingStatuses map[string]struct{}
@@ -38,20 +43,20 @@ type subscriptions struct {
 }
 
 // SubscribeCandle - Метод подписки на свечи с заданным интервалом
-func (mds *MarketDataStream) SubscribeCandle(ids []string, interval pb.SubscriptionInterval) (<-chan *pb.Candle, error) {
-	err := mds.sendCandlesReq(ids, interval, pb.SubscriptionAction_SUBSCRIPTION_ACTION_SUBSCRIBE)
+func (mds *MarketDataStream) SubscribeCandle(ids []string, interval pb.SubscriptionInterval, waitingClose bool) (<-chan *pb.Candle, error) {
+	err := mds.sendCandlesReq(ids, interval, pb.SubscriptionAction_SUBSCRIPTION_ACTION_SUBSCRIBE, waitingClose)
 	if err != nil {
 		return nil, err
 	}
 	for _, id := range ids {
-		mds.subs.candles[id] = interval
+		mds.subs.candles[id] = candleSub{interval: interval, waitingClose: waitingClose}
 	}
 	return mds.candle, nil
 }
 
 // UnSubscribeCandle - Метод отписки от свечей
-func (mds *MarketDataStream) UnSubscribeCandle(ids []string, interval pb.SubscriptionInterval) error {
-	err := mds.sendCandlesReq(ids, interval, pb.SubscriptionAction_SUBSCRIPTION_ACTION_UNSUBSCRIBE)
+func (mds *MarketDataStream) UnSubscribeCandle(ids []string, interval pb.SubscriptionInterval, waitingClose bool) error {
+	err := mds.sendCandlesReq(ids, interval, pb.SubscriptionAction_SUBSCRIPTION_ACTION_UNSUBSCRIBE, waitingClose)
 	if err != nil {
 		return err
 	}
@@ -61,7 +66,7 @@ func (mds *MarketDataStream) UnSubscribeCandle(ids []string, interval pb.Subscri
 	return nil
 }
 
-func (mds *MarketDataStream) sendCandlesReq(ids []string, interval pb.SubscriptionInterval, act pb.SubscriptionAction) error {
+func (mds *MarketDataStream) sendCandlesReq(ids []string, interval pb.SubscriptionInterval, act pb.SubscriptionAction, waitingClose bool) error {
 	instruments := make([]*pb.CandleInstrument, 0, len(ids))
 	for _, id := range ids {
 		instruments = append(instruments, &pb.CandleInstrument{
@@ -70,14 +75,12 @@ func (mds *MarketDataStream) sendCandlesReq(ids []string, interval pb.Subscripti
 		})
 	}
 
-	WCFlag := interval == pb.SubscriptionInterval_SUBSCRIPTION_INTERVAL_ONE_MINUTE
-
 	return mds.stream.Send(&pb.MarketDataRequest{
 		Payload: &pb.MarketDataRequest_SubscribeCandlesRequest{
 			SubscribeCandlesRequest: &pb.SubscribeCandlesRequest{
 				SubscriptionAction: act,
 				Instruments:        instruments,
-				WaitingClose:       WCFlag,
+				WaitingClose:       waitingClose,
 			}}})
 }
 
@@ -307,14 +310,14 @@ func (mds *MarketDataStream) Stop() {
 func (mds *MarketDataStream) UnSubscribeAll() error {
 	ids := make([]string, 0)
 	if len(mds.subs.candles) > 0 {
-		intervals := make(map[pb.SubscriptionInterval][]string, 0)
+		candleSubs := make(map[candleSub][]string, 0)
 
-		for id, interval := range mds.subs.candles {
-			intervals[interval] = append(intervals[interval], id)
+		for id, c := range mds.subs.candles {
+			candleSubs[c] = append(candleSubs[c], id)
 			delete(mds.subs.candles, id)
 		}
-		for interval, ids := range intervals {
-			err := mds.UnSubscribeCandle(ids, interval)
+		for c, ids := range candleSubs {
+			err := mds.UnSubscribeCandle(ids, c.interval, c.waitingClose)
 			if err != nil {
 				return err
 			}
