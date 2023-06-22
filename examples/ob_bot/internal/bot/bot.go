@@ -19,7 +19,7 @@ type OrderBookStrategyConfig struct {
 	Depth int32
 	//  Если кол-во бид/аск больше чем BuyRatio - покупаем
 	BuyRatio float64
-	//  Если кол-во бид/аск меньше чем SellRatio - продаем
+	//  Если кол-во аск/бид больше чем SellRatio - продаем
 	SellRatio float64
 	// MinProfit - Минимальный процент выгоды, с которым можно совершать сделки
 	MinProfit float64
