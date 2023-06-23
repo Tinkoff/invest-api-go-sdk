@@ -46,3 +46,30 @@ type OrderBookStrategyConfig struct {
 Данный пример ориентирован на торговлю внутри одного дня. При запуске бота функция `tradingDeadLine()` возвращает 
 дедлайн торгов на сегодня, если выставлен флаг `SellOut` и время `SellOutAhead`, то бот завершит работу и закроет все 
 позиции за `SellOutAhead`до дедлайна.
+
+### Запуск 
+
+    $ cd examples/ob_bot
+
+Создайте файл `config.yaml`
+
+    $ touch "config.yaml"
+
+И заполните его по примеру `example.yaml`
+
+```yaml
+AccountId: ""
+APIToken: <your_token>
+EndPoint: sandbox-invest-public-api.tinkoff.ru:443
+AppName: invest-api-go-sdk
+DisableResourceExhaustedRetry: false
+DisableAllRetry: false
+MaxRetries: 3
+```
+
+*Для быстрого старта на песочнице достаточно указать только токен, остальное заполнится по умолчанию.*
+
+    $ go run cmd/main.go
+
+Обратите внимание, что в одной функции main есть возможность создать несколько клиентов для investAPI c разными 
+токенами и счетами, а с разными клиентами можно создавать разных ботов и запускать их одновременно. 
