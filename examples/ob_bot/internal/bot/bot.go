@@ -2,8 +2,10 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"strings"
 	"sync"
 	"time"
 )
@@ -50,17 +52,27 @@ func NewBot(ctx context.Context, c *investgo.Client, dd time.Time, config OrderB
 		botCtx, cancelBot = context.WithDeadline(botCtx, dd.Add(-config.SellOutAhead))
 	}
 
+	instruments := make(map[string]Instrument, len(config.Instruments))
+	executor := NewExecutor(ctx, c, instruments, config.MinProfit)
+
 	return &Bot{
 		Client:         c,
 		StrategyConfig: config,
 		ctx:            botCtx,
 		cancelBot:      cancelBot,
+		executor:       executor,
 	}, nil
 }
 
 // Run - Запуск бота
 func (b *Bot) Run() error {
 	wg := &sync.WaitGroup{}
+
+	err := b.checkMoneyBalance("RUB", 200000)
+	if err != nil {
+		b.Client.Logger.Fatalf(err.Error())
+	}
+
 	// по конфигу стратегии заполняем map для executor
 	instrumentService := b.Client.NewInstrumentsServiceClient()
 	instruments := make(map[string]Instrument, len(b.StrategyConfig.Instruments))
@@ -79,10 +91,8 @@ func (b *Bot) Run() error {
 			currency:   resp.GetInstrument().GetCurrency(),
 		}
 	}
-	lastPrices := make(map[string]float64, len(b.StrategyConfig.Instruments))
 
-	executor := NewExecutor(b.Client, instruments, lastPrices, b.StrategyConfig.MinProfit)
-	b.executor = executor
+	b.executor.instruments = instruments
 
 	// инфраструктура для работы стратегии: запрос, получение, преобразование рыночных данных
 	MarketDataStreamService := b.Client.NewMarketDataStreamClient()
@@ -132,7 +142,7 @@ func (b *Bot) Run() error {
 					return
 				}
 				// обновление данных в мапе последних цен
-				lastPrices[lp.GetInstrumentUid()] = lp.GetPrice().ToFloat()
+				b.executor.lastPrices[lp.GetInstrumentUid()] = lp.GetPrice().ToFloat()
 			}
 		}
 	}(b.ctx)
@@ -216,6 +226,44 @@ func ordersCount(o []Order) int64 {
 		count += order.Quantity
 	}
 	return count
+}
+
+// checkMoneyBalance - проверка доступного баланса денежных средств
+func (b *Bot) checkMoneyBalance(currency string, required float64) error {
+	operationsService := b.Client.NewOperationsServiceClient()
+
+	resp, err := operationsService.GetPositions(b.Client.Config.AccountId)
+	if err != nil {
+		return err
+	}
+	var balance float64
+	money := resp.GetMoney()
+	for _, m := range money {
+		b.Client.Logger.Infof("money balance = %v %v", m.ToFloat(), m.GetCurrency())
+		if m.GetCurrency() == currency {
+			balance = m.ToFloat()
+		}
+	}
+
+	if diff := balance - required; diff < 0 {
+		if strings.HasPrefix(b.Client.Config.EndPoint, "sandbox") {
+			sandbox := b.Client.NewSandboxServiceClient()
+			resp, err := sandbox.SandboxPayIn(&investgo.SandboxPayInRequest{
+				AccountId: b.Client.Config.AccountId,
+				Currency:  currency,
+				Unit:      int64(-diff),
+				Nano:      0,
+			})
+			if err != nil {
+				return err
+			}
+			b.Client.Logger.Infof("sandbox auto pay in, balance = %v", resp.GetBalance().ToFloat())
+		} else {
+			return errors.New("not enough money on balance")
+		}
+	}
+
+	return nil
 }
 
 // transformOrderBook - Преобразование стакана в нужный формат

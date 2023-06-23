@@ -16,7 +16,7 @@ import (
 
 const (
 	// SHARES_NUM - Количество акций для торгов
-	SHARES_NUM = 50
+	SHARES_NUM = 30
 	// EXCHANGE - Биржа на которой будет работать бот
 	EXCHANGE = "MOEX"
 )
