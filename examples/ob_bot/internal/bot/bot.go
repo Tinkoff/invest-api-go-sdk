@@ -25,7 +25,7 @@ type OrderBookStrategyConfig struct {
 	MinProfit float64
 	// SellOut - Если true, то по достижению дедлайна бот выходит из всех активных позиций
 	SellOut bool
-	// (Дедлайн интрадей торговли - SellOutAheadMin) - это момент времени, когда бот начнет продавать
+	// (Дедлайн интрадей торговли - SellOutAhead) - это момент времени, когда бот начнет продавать
 	// все активные позиции
 	SellOutAhead time.Duration
 }
