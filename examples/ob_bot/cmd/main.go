@@ -35,7 +35,7 @@ func main() {
 	defer cancel()
 	// сдк использует для внутреннего логирования investgo.Logger
 	// для примера передадим uber.zap
-	prod, _ := zap.NewProduction()
+	prod := zap.NewExample()
 	defer func() {
 		err := prod.Sync()
 		if err != nil {
