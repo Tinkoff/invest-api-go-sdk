@@ -1,8 +1,10 @@
 package bot
 
 import (
+	"context"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"sync"
 )
 
 type Instrument struct {
@@ -18,6 +20,27 @@ type Instrument struct {
 	entryPrice float64
 }
 
+type Positions struct {
+	mx sync.Mutex
+	pd *pb.PositionData
+}
+
+func NewPositions() *Positions {
+	return &Positions{pd: &pb.PositionData{}}
+}
+
+func (p *Positions) Update(data *pb.PositionData) {
+	p.mx.Lock()
+	p.pd = data
+	p.mx.Unlock()
+}
+
+func (p *Positions) Get() *pb.PositionData {
+	p.mx.Lock()
+	defer p.mx.Unlock()
+	return p.pd
+}
+
 // Executor - Вызывается ботом и исполняет торговые поручения
 type Executor struct {
 	// instruments - Инструменты, которыми торгует исполнитель
@@ -27,22 +50,84 @@ type Executor struct {
 
 	// lastPrices - Мапа последних цен по инструментам, бот в нее пишет, исполнитель читает
 	lastPrices map[string]float64
+	positions  *Positions
 
-	client            *investgo.Client
-	ordersService     *investgo.OrdersServiceClient
-	operationsService *investgo.OperationsServiceClient
+	client        *investgo.Client
+	ordersService *investgo.OrdersServiceClient
 }
 
 // NewExecutor - Создание экземпляра исполнителя
-func NewExecutor(c *investgo.Client, ids map[string]Instrument, lp map[string]float64, minProfit float64) *Executor {
-	return &Executor{
-		instruments:       ids,
-		lastPrices:        lp,
-		client:            c,
-		ordersService:     c.NewOrdersServiceClient(),
-		operationsService: c.NewOperationsServiceClient(),
-		minProfit:         minProfit,
+func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrument, minProfit float64) *Executor {
+	e := &Executor{
+		instruments:   ids,
+		lastPrices:    make(map[string]float64, len(ids)),
+		client:        c,
+		ordersService: c.NewOrdersServiceClient(),
+		minProfit:     minProfit,
+		positions:     NewPositions(),
 	}
+
+	go func(ctx context.Context) {
+		err := e.updatePositions(ctx)
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}(ctx)
+
+	return e
+}
+
+func (e *Executor) updatePositions(ctx context.Context) error {
+	operationsStreamService := e.client.NewOperationsStreamClient()
+	operationsService := e.client.NewOperationsServiceClient()
+	// в начале получаем баланс денежных средств на счете
+	resp, err := operationsService.GetPositions(e.client.Config.AccountId)
+	if err != nil {
+		return err
+	}
+
+	money := resp.GetMoney()
+	positionMoney := make([]*pb.PositionsMoney, 0)
+	for _, m := range money {
+		positionMoney = append(positionMoney, &pb.PositionsMoney{
+			AvailableValue: m,
+			BlockedValue:   nil,
+		})
+	}
+	// обновляем баланс для исполнителя
+	e.positions.Update(&pb.PositionData{Money: positionMoney})
+
+	stream, err := operationsStreamService.PositionsStream([]string{e.client.Config.AccountId})
+	if err != nil {
+		return err
+	}
+	positionsChan := stream.Positions()
+
+	go func() {
+		err := stream.Listen()
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}()
+
+	go func(ctx context.Context) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case p, ok := <-positionsChan:
+				if !ok {
+					return
+				}
+				e.positions.Update(p)
+			}
+		}
+	}(ctx)
+
+	<-ctx.Done()
+	e.client.Logger.Infof("stop updating positions in executor")
+	stream.Stop()
+	return nil
 }
 
 // Buy - Метод покупки инструмента с идентификатором id
@@ -116,18 +201,18 @@ func (e *Executor) possibleToBuy(id string) bool {
 	// требуемая сумма для покупки
 	// кол-во лотов * лотность * стоимость 1 инструмента
 	required := float64(e.instruments[id].quantity) * float64(e.instruments[id].lot) * e.lastPrices[id]
-	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
-	if err != nil {
-		e.client.Logger.Errorf(err.Error())
-	}
-	money := resp.GetMoney()
+	positionMoney := e.positions.Get().GetMoney()
 	var moneyInFloat float64
-	for _, m := range money {
+	for _, pm := range positionMoney {
+		m := pm.GetAvailableValue()
 		if m.GetCurrency() == e.instruments[id].currency {
 			moneyInFloat = m.ToFloat()
 		}
 	}
 	// TODO сравнение дробных чисел
+	if moneyInFloat < required {
+		e.client.Logger.Infof("executor: not enough money to buy order")
+	}
 	return moneyInFloat > required
 }
 
@@ -137,12 +222,8 @@ func (e *Executor) possibleToSell() {
 
 // SellOut - Метод выхода из всех текущих позиций
 func (e *Executor) SellOut() error {
-	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
-	if err != nil {
-		return err
-	}
 	// TODO for futures and options
-	securities := resp.GetSecurities()
+	securities := e.positions.Get().GetSecurities()
 	for _, security := range securities {
 		var lot int64
 		instrument, ok := e.instruments[security.GetInstrumentUid()]
