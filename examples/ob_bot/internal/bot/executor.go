@@ -68,7 +68,7 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 	}
 
 	go func(ctx context.Context) {
-		err := e.updatePositions(ctx)
+		err := e.checkPositions(ctx)
 		if err != nil {
 			e.client.Logger.Errorf(err.Error())
 		}
@@ -77,10 +77,9 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 	return e
 }
 
-func (e *Executor) updatePositions(ctx context.Context) error {
-	operationsStreamService := e.client.NewOperationsStreamClient()
+func (e *Executor) UpdatePositions() error {
 	operationsService := e.client.NewOperationsServiceClient()
-	// в начале получаем баланс денежных средств на счете
+
 	resp, err := operationsService.GetPositions(e.client.Config.AccountId)
 	if err != nil {
 		return err
@@ -96,7 +95,15 @@ func (e *Executor) updatePositions(ctx context.Context) error {
 	}
 	// обновляем баланс для исполнителя
 	e.positions.Update(&pb.PositionData{Money: positionMoney})
+	return nil
+}
 
+func (e *Executor) checkPositions(ctx context.Context) error {
+	err := e.UpdatePositions()
+	if err != nil {
+		return err
+	}
+	operationsStreamService := e.client.NewOperationsStreamClient()
 	stream, err := operationsStreamService.PositionsStream([]string{e.client.Config.AccountId})
 	if err != nil {
 		return err

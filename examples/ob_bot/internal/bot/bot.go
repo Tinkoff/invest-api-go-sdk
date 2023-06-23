@@ -258,6 +258,10 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 				return err
 			}
 			b.Client.Logger.Infof("sandbox auto pay in, balance = %v", resp.GetBalance().ToFloat())
+			err = b.executor.UpdatePositions()
+			if err != nil {
+				return err
+			}
 		} else {
 			return errors.New("not enough money on balance")
 		}
