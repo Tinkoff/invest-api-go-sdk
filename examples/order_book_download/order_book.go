@@ -68,7 +68,7 @@ create table if not exists asks (
 
 func main() {
 	// создаем базу данных sqlite
-	db, err := initDB("examples/order_book_download/order_books.db")
+	db, err := initDB("order_book_download/order_books.db")
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
@@ -296,7 +296,7 @@ func main() {
 	wg.Wait()
 }
 
-// преобразование стакана в нужный формат
+// transformOrderBook - Преобразование стакана в нужный формат
 func transformOrderBook(input *pb.OrderBook) *OrderBook {
 	depth := input.GetDepth()
 	bids := make([]Order, 0, depth)
@@ -326,7 +326,7 @@ func transformOrderBook(input *pb.OrderBook) *OrderBook {
 	}
 }
 
-// сохранение стаканов в json
+// storeOrderBooksInFile - Сохранение стаканов в json
 func storeOrderBooksInFile(orderBooks []*OrderBook) error {
 	file, err := os.Create("order_books.json")
 	if err != nil {
@@ -346,7 +346,7 @@ func storeOrderBooksInFile(orderBooks []*OrderBook) error {
 	return err
 }
 
-// инициализация бд
+// initDB - Инициализация бд
 func initDB(path string) (*sqlx.DB, error) {
 	db, err := sqlx.Open("sqlite3", path)
 	if err != nil {
@@ -363,7 +363,7 @@ func initDB(path string) (*sqlx.DB, error) {
 	return db, nil
 }
 
-// сохранение партии стаканов в бд
+// storeOrderBooksInDB - Сохранение партии стаканов в бд
 func storeOrderBooksInDB(db *sqlx.DB, obooks []*OrderBook) error {
 	tx, err := db.Begin()
 	if err != nil {
