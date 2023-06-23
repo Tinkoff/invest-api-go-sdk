@@ -100,7 +100,8 @@ func (e *Executor) Sell(id string) (float64, error) {
 	var profit float64
 	if resp.GetExecutionReportStatus() == pb.OrderExecutionReportStatus_EXECUTION_REPORT_STATUS_FILL {
 		currentInstrument.inStock = false
-		profit = resp.GetExecutedOrderPrice().ToFloat() - currentInstrument.entryPrice
+		// разница в цене инструмента * лотность * кол-во лотов
+		profit = (resp.GetExecutedOrderPrice().ToFloat() - currentInstrument.entryPrice) * float64(currentInstrument.lot) * float64(currentInstrument.quantity)
 	}
 	e.client.Logger.Infof("Sell with %v, price %v", resp.GetFigi(), resp.GetExecutedOrderPrice().ToFloat())
 	e.instruments[id] = currentInstrument
