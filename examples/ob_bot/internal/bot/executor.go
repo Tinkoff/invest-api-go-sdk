@@ -392,10 +392,6 @@ func (e *Executor) possibleToBuy(id string) bool {
 	return moneyInFloat > required
 }
 
-func (e *Executor) possibleToSell() {
-
-}
-
 // SellOut - Метод выхода из всех текущих позиций
 func (e *Executor) SellOut() error {
 	// TODO for futures and options
