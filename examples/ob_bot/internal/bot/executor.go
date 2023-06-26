@@ -21,6 +21,7 @@ type Instrument struct {
 	entryPrice float64
 }
 
+// LastPrices - Последние цены инструментов
 type LastPrices struct {
 	mx sync.Mutex
 	lp map[string]float64
@@ -32,12 +33,14 @@ func NewLastPrices() *LastPrices {
 	}
 }
 
+// Update - обновление последних цен
 func (l *LastPrices) Update(id string, price float64) {
 	l.mx.Lock()
 	l.lp[id] = price
 	l.mx.Unlock()
 }
 
+// Get - получение последней цены
 func (l *LastPrices) Get(id string) (float64, bool) {
 	l.mx.Lock()
 	defer l.mx.Unlock()
@@ -78,8 +81,10 @@ type Executor struct {
 	// minProfit - Процент минимального профита, после которого выставляются рыночные заявки
 	minProfit float64
 
+	// lastPrices - Последние цены по инструментам, обновляются через стрим маркетдаты
 	lastPrices *LastPrices
-	positions  *Positions
+	// lastPrices - Текущие позиции на счете, обновляются через стрим сервиса операций
+	positions *Positions
 
 	wg     *sync.WaitGroup
 	cancel context.CancelFunc
@@ -105,6 +110,7 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 		ordersService:     c.NewOrdersServiceClient(),
 		operationsService: c.NewOperationsServiceClient(),
 	}
+	// Сразу запускаем исполнителя из его же конструктора
 	e.start(ctxExecutor)
 	return e
 }
@@ -116,6 +122,7 @@ func (e *Executor) Stop() {
 	e.client.Logger.Infof("executor stopped")
 }
 
+// start - Запуск чтения стримов позиций и последних цен
 func (e *Executor) start(ctx context.Context) {
 	e.wg.Add(1)
 	go func(ctx context.Context) {
@@ -181,6 +188,7 @@ func (e *Executor) listenPositions(ctx context.Context) error {
 	return nil
 }
 
+// listenLastPrices - Метод слушает стрим последних цен и обновляет их
 func (e *Executor) listenLastPrices(ctx context.Context) error {
 	MarketDataStreamService := e.client.NewMarketDataStreamClient()
 	stream, err := MarketDataStreamService.MarketDataStream()

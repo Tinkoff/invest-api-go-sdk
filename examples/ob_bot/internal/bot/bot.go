@@ -44,7 +44,6 @@ type Bot struct {
 
 // NewBot - Создание экземпляра бота на стакане
 // dd - дедлайн работы бота для интрадей торговли
-// каждый бот создает своего клиента для работы с investAPI
 func NewBot(ctx context.Context, c *investgo.Client, dd time.Time, config OrderBookStrategyConfig) (*Bot, error) {
 	botCtx, cancelBot := context.WithDeadline(ctx, dd)
 	// если нужно выходить из позиций, то бот будет завершать свою работу раньше чем дедлайн
@@ -71,14 +70,12 @@ func NewBot(ctx context.Context, c *investgo.Client, dd time.Time, config OrderB
 			currency:   resp.GetInstrument().GetCurrency(),
 		}
 	}
-	executor := NewExecutor(ctx, c, instruments, config.MinProfit)
-
 	return &Bot{
 		Client:         c,
 		StrategyConfig: config,
 		ctx:            botCtx,
 		cancelBot:      cancelBot,
-		executor:       executor,
+		executor:       NewExecutor(ctx, c, instruments, config.MinProfit),
 	}, nil
 }
 
@@ -117,9 +114,7 @@ func (b *Bot) Run() error {
 	// чтение из стрима
 	wg.Add(1)
 	go func(ctx context.Context) {
-		defer func() {
-			wg.Done()
-		}()
+		defer wg.Done()
 		for {
 			select {
 			case <-ctx.Done():
@@ -151,6 +146,7 @@ func (b *Bot) Run() error {
 	// стримы работают на контексте клиента, завершать их нужно явно
 	stream.Stop()
 
+	// если нужно, то в конце торговой сессии выходим из всех, открытых ботом, позиций
 	if b.StrategyConfig.SellOut {
 		b.Client.Logger.Infof("start positions sell out...")
 		err := b.executor.SellOut()
@@ -159,6 +155,7 @@ func (b *Bot) Run() error {
 		}
 	}
 
+	// так как исполнитель тоже слушает стримы, его нужно явно остановить
 	b.executor.Stop()
 
 	wg.Wait()
@@ -208,6 +205,7 @@ func (b *Bot) checkRatio(ob OrderBook) float64 {
 	return float64(buy) / float64(sell)
 }
 
+// ordersCount - возвращает кол-во заявок из слайса ордеров
 func ordersCount(o []Order) int64 {
 	var count int64
 	for _, order := range o {
