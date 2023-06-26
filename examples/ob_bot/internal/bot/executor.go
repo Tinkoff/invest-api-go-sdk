@@ -5,6 +5,7 @@ import (
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"sync"
+	"time"
 )
 
 type Instrument struct {
@@ -20,21 +21,50 @@ type Instrument struct {
 	entryPrice float64
 }
 
+type LastPrices struct {
+	mx sync.Mutex
+	lp map[string]float64
+}
+
+func NewLastPrices() *LastPrices {
+	return &LastPrices{
+		lp: make(map[string]float64, 0),
+	}
+}
+
+func (l *LastPrices) Update(id string, price float64) {
+	l.mx.Lock()
+	l.lp[id] = price
+	l.mx.Unlock()
+}
+
+func (l *LastPrices) Get(id string) (float64, bool) {
+	l.mx.Lock()
+	defer l.mx.Unlock()
+	p, ok := l.lp[id]
+	return p, ok
+}
+
+// Positions - Данные о позициях счета
 type Positions struct {
 	mx sync.Mutex
 	pd *pb.PositionData
 }
 
 func NewPositions() *Positions {
-	return &Positions{pd: &pb.PositionData{}}
+	return &Positions{
+		pd: &pb.PositionData{},
+	}
 }
 
+// Update - Обновление позиций
 func (p *Positions) Update(data *pb.PositionData) {
 	p.mx.Lock()
 	p.pd = data
 	p.mx.Unlock()
 }
 
+// Get - получение позиций
 func (p *Positions) Get() *pb.PositionData {
 	p.mx.Lock()
 	defer p.mx.Unlock()
@@ -48,69 +78,89 @@ type Executor struct {
 	// minProfit - Процент минимального профита, после которого выставляются рыночные заявки
 	minProfit float64
 
-	// lastPrices - Мапа последних цен по инструментам, бот в нее пишет, исполнитель читает
-	lastPrices map[string]float64
+	lastPrices *LastPrices
 	positions  *Positions
 
-	client        *investgo.Client
-	ordersService *investgo.OrdersServiceClient
+	wg     *sync.WaitGroup
+	cancel context.CancelFunc
+
+	client            *investgo.Client
+	ordersService     *investgo.OrdersServiceClient
+	operationsService *investgo.OperationsServiceClient
 }
 
 // NewExecutor - Создание экземпляра исполнителя
 func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrument, minProfit float64) *Executor {
-	e := &Executor{
-		instruments:   ids,
-		lastPrices:    make(map[string]float64, len(ids)),
-		client:        c,
-		ordersService: c.NewOrdersServiceClient(),
-		minProfit:     minProfit,
-		positions:     NewPositions(),
-	}
+	ctxExecutor, cancel := context.WithCancel(ctx)
+	wg := &sync.WaitGroup{}
 
+	e := &Executor{
+		instruments:       ids,
+		minProfit:         minProfit,
+		lastPrices:        NewLastPrices(),
+		positions:         NewPositions(),
+		wg:                wg,
+		cancel:            cancel,
+		client:            c,
+		ordersService:     c.NewOrdersServiceClient(),
+		operationsService: c.NewOperationsServiceClient(),
+	}
+	e.start(ctxExecutor)
+	return e
+}
+
+// Stop - Завершение работы
+func (e *Executor) Stop() {
+	e.cancel()
+	e.wg.Wait()
+	e.client.Logger.Infof("executor stopped")
+}
+
+func (e *Executor) start(ctx context.Context) {
+	e.wg.Add(1)
 	go func(ctx context.Context) {
-		err := e.updatePositions(ctx)
+		defer e.wg.Done()
+		err := e.listenPositions(ctx)
 		if err != nil {
 			e.client.Logger.Errorf(err.Error())
 		}
 	}(ctx)
 
-	return e
+	e.wg.Add(1)
+	go func(ctx context.Context) {
+		defer e.wg.Done()
+		err := e.listenLastPrices(ctx)
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}(ctx)
 }
 
-func (e *Executor) updatePositions(ctx context.Context) error {
-	operationsStreamService := e.client.NewOperationsStreamClient()
-	operationsService := e.client.NewOperationsServiceClient()
-	// в начале получаем баланс денежных средств на счете
-	resp, err := operationsService.GetPositions(e.client.Config.AccountId)
+// listenPositions - Метод слушает стрим позиций и обновляет их
+func (e *Executor) listenPositions(ctx context.Context) error {
+	err := e.updatePositionsUnary()
 	if err != nil {
 		return err
 	}
-
-	money := resp.GetMoney()
-	positionMoney := make([]*pb.PositionsMoney, 0)
-	for _, m := range money {
-		positionMoney = append(positionMoney, &pb.PositionsMoney{
-			AvailableValue: m,
-			BlockedValue:   nil,
-		})
-	}
-	// обновляем баланс для исполнителя
-	e.positions.Update(&pb.PositionData{Money: positionMoney})
-
+	operationsStreamService := e.client.NewOperationsStreamClient()
 	stream, err := operationsStreamService.PositionsStream([]string{e.client.Config.AccountId})
 	if err != nil {
 		return err
 	}
 	positionsChan := stream.Positions()
 
+	e.wg.Add(1)
 	go func() {
+		defer e.wg.Done()
 		err := stream.Listen()
 		if err != nil {
 			e.client.Logger.Errorf(err.Error())
 		}
 	}()
 
+	e.wg.Add(1)
 	go func(ctx context.Context) {
+		defer e.wg.Done()
 		for {
 			select {
 			case <-ctx.Done():
@@ -119,6 +169,7 @@ func (e *Executor) updatePositions(ctx context.Context) error {
 				if !ok {
 					return
 				}
+				e.client.Logger.Infof("update from positions stream %v\n", p.GetMoney())
 				e.positions.Update(p)
 			}
 		}
@@ -127,6 +178,101 @@ func (e *Executor) updatePositions(ctx context.Context) error {
 	<-ctx.Done()
 	e.client.Logger.Infof("stop updating positions in executor")
 	stream.Stop()
+	return nil
+}
+
+func (e *Executor) listenLastPrices(ctx context.Context) error {
+	MarketDataStreamService := e.client.NewMarketDataStreamClient()
+	stream, err := MarketDataStreamService.MarketDataStream()
+	if err != nil {
+		return err
+	}
+
+	ids := make([]string, 0, len(e.instruments))
+	for id := range e.instruments {
+		ids = append(ids, id)
+	}
+	lastPricesChan, err := stream.SubscribeLastPrice(ids)
+	if err != nil {
+		return err
+	}
+
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		err := stream.Listen()
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}()
+
+	// чтение из стрима
+	e.wg.Add(1)
+	go func(ctx context.Context) {
+		defer e.wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case lp, ok := <-lastPricesChan:
+				if !ok {
+					return
+				}
+				e.lastPrices.Update(lp.GetInstrumentUid(), lp.GetPrice().ToFloat())
+			}
+		}
+	}(ctx)
+
+	<-ctx.Done()
+	e.client.Logger.Infof("stop updating last prices in executor")
+	stream.Stop()
+	return nil
+}
+
+// updatePositionsUnary - Unary метод обновления позиций
+func (e *Executor) updatePositionsUnary() error {
+	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
+	if err != nil {
+		return err
+	}
+	// два слайса *MoneyValue
+	available := resp.GetMoney()
+	blocked := resp.GetBlocked()
+
+	// слайс *PositionMoney
+	positionMoney := make([]*pb.PositionsMoney, 0)
+	// ключ - код валюты, значение - *PositionMoney
+	moneyByCurrency := make(map[string]*pb.PositionsMoney, 0)
+
+	for _, avail := range available {
+		moneyByCurrency[avail.GetCurrency()] = &pb.PositionsMoney{
+			AvailableValue: avail,
+			BlockedValue:   nil,
+		}
+	}
+
+	for _, block := range blocked {
+		m := moneyByCurrency[block.GetCurrency()]
+		moneyByCurrency[block.GetCurrency()] = &pb.PositionsMoney{
+			AvailableValue: m.GetAvailableValue(),
+			BlockedValue:   block,
+		}
+	}
+
+	for _, money := range moneyByCurrency {
+		positionMoney = append(positionMoney, money)
+	}
+
+	// обновляем позиции для исполнителя
+	e.positions.Update(&pb.PositionData{
+		AccountId:  e.client.Config.AccountId,
+		Money:      positionMoney,
+		Securities: resp.GetSecurities(),
+		Futures:    resp.GetFutures(),
+		Options:    resp.GetOptions(),
+		Date:       investgo.TimeToTimestamp(time.Now()),
+	})
+
 	return nil
 }
 
@@ -193,14 +339,25 @@ func (e *Executor) Sell(id string) (float64, error) {
 	return profit, nil
 }
 
+// isProfitable - Верно если процент выгоды возможной сделки, рассчитанный по цене последней сделки, больше чем minProfit
 func (e *Executor) isProfitable(id string) bool {
-	return ((e.lastPrices[id]-e.instruments[id].entryPrice)/e.instruments[id].entryPrice)*100 > e.minProfit
+	lp, ok := e.lastPrices.Get(id)
+	if !ok {
+		return false
+	}
+	return ((lp-e.instruments[id].entryPrice)/e.instruments[id].entryPrice)*100 > e.minProfit
 }
 
+// possibleToBuy - Проверка возможности купить инструмент
 func (e *Executor) possibleToBuy(id string) bool {
 	// требуемая сумма для покупки
 	// кол-во лотов * лотность * стоимость 1 инструмента
-	required := float64(e.instruments[id].quantity) * float64(e.instruments[id].lot) * e.lastPrices[id]
+	//return true
+	lp, ok := e.lastPrices.Get(id)
+	if !ok {
+		return false
+	}
+	required := float64(e.instruments[id].quantity) * float64(e.instruments[id].lot) * lp
 	positionMoney := e.positions.Get().GetMoney()
 	var moneyInFloat float64
 	for _, pm := range positionMoney {
@@ -209,6 +366,17 @@ func (e *Executor) possibleToBuy(id string) bool {
 			moneyInFloat = m.ToFloat()
 		}
 	}
+
+	// TODO убрать, когда починят стрим
+	if moneyInFloat < 0 {
+		e.client.Logger.Infof("balance < 0, update positions by unary call")
+		err := e.updatePositionsUnary()
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+		return e.possibleToBuy(id)
+	}
+
 	// TODO сравнение дробных чисел
 	if moneyInFloat < required {
 		e.client.Logger.Infof("executor: not enough money to buy order")
@@ -223,7 +391,12 @@ func (e *Executor) possibleToSell() {
 // SellOut - Метод выхода из всех текущих позиций
 func (e *Executor) SellOut() error {
 	// TODO for futures and options
-	securities := e.positions.Get().GetSecurities()
+	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
+	if err != nil {
+		return err
+	}
+
+	securities := resp.GetSecurities()
 	for _, security := range securities {
 		var lot int64
 		instrument, ok := e.instruments[security.GetInstrumentUid()]

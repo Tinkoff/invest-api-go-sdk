@@ -52,7 +52,25 @@ func NewBot(ctx context.Context, c *investgo.Client, dd time.Time, config OrderB
 		botCtx, cancelBot = context.WithDeadline(botCtx, dd.Add(-config.SellOutAhead))
 	}
 
+	// по конфигу стратегии заполняем map для executor
+	instrumentService := c.NewInstrumentsServiceClient()
 	instruments := make(map[string]Instrument, len(config.Instruments))
+
+	for _, instrument := range config.Instruments {
+		// в данном случае ключ это uid, поэтому используем LotByUid()
+		resp, err := instrumentService.InstrumentByUid(instrument)
+		if err != nil {
+			cancelBot()
+			return nil, err
+		}
+		instruments[instrument] = Instrument{
+			quantity:   QUANTITY,
+			inStock:    false,
+			entryPrice: 0,
+			lot:        resp.GetInstrument().GetLot(),
+			currency:   resp.GetInstrument().GetCurrency(),
+		}
+	}
 	executor := NewExecutor(ctx, c, instruments, config.MinProfit)
 
 	return &Bot{
@@ -73,27 +91,6 @@ func (b *Bot) Run() error {
 		b.Client.Logger.Fatalf(err.Error())
 	}
 
-	// по конфигу стратегии заполняем map для executor
-	instrumentService := b.Client.NewInstrumentsServiceClient()
-	instruments := make(map[string]Instrument, len(b.StrategyConfig.Instruments))
-
-	for _, instrument := range b.StrategyConfig.Instruments {
-		// в данном случае ключ это uid, поэтому используем LotByUid()
-		resp, err := instrumentService.InstrumentByUid(instrument)
-		if err != nil {
-			return err
-		}
-		instruments[instrument] = Instrument{
-			quantity:   QUANTITY,
-			inStock:    false,
-			entryPrice: 0,
-			lot:        resp.GetInstrument().GetLot(),
-			currency:   resp.GetInstrument().GetCurrency(),
-		}
-	}
-
-	b.executor.instruments = instruments
-
 	// инфраструктура для работы стратегии: запрос, получение, преобразование рыночных данных
 	MarketDataStreamService := b.Client.NewMarketDataStreamClient()
 	stream, err := MarketDataStreamService.MarketDataStream()
@@ -101,11 +98,6 @@ func (b *Bot) Run() error {
 		return err
 	}
 	pbOrderBooks, err := stream.SubscribeOrderBook(b.StrategyConfig.Instruments, b.StrategyConfig.Depth)
-	if err != nil {
-		return err
-	}
-
-	lastPricesChan, err := stream.SubscribeLastPrice(b.StrategyConfig.Instruments)
 	if err != nil {
 		return err
 	}
@@ -137,12 +129,6 @@ func (b *Bot) Run() error {
 					return
 				}
 				orderBooks <- transformOrderBook(ob)
-			case lp, ok := <-lastPricesChan:
-				if !ok {
-					return
-				}
-				// обновление данных в мапе последних цен
-				b.executor.lastPrices[lp.GetInstrumentUid()] = lp.GetPrice().ToFloat()
 			}
 		}
 	}(b.ctx)
@@ -172,6 +158,8 @@ func (b *Bot) Run() error {
 			return err
 		}
 	}
+
+	b.executor.Stop()
 
 	wg.Wait()
 	return nil
@@ -240,7 +228,7 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 	money := resp.GetMoney()
 	for _, m := range money {
 		b.Client.Logger.Infof("money balance = %v %v", m.ToFloat(), m.GetCurrency())
-		if m.GetCurrency() == currency {
+		if strings.ToLower(m.GetCurrency()) == strings.ToLower(currency) {
 			balance = m.ToFloat()
 		}
 	}
@@ -258,6 +246,10 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 				return err
 			}
 			b.Client.Logger.Infof("sandbox auto pay in, balance = %v", resp.GetBalance().ToFloat())
+			err = b.executor.updatePositionsUnary()
+			if err != nil {
+				return err
+			}
 		} else {
 			return errors.New("not enough money on balance")
 		}
