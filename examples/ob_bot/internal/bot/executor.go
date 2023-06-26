@@ -21,6 +21,7 @@ type Instrument struct {
 	entryPrice float64
 }
 
+// Positions - Данные о позициях счета
 type Positions struct {
 	mx sync.Mutex
 	pd *pb.PositionData
@@ -30,12 +31,14 @@ func NewPositions() *Positions {
 	return &Positions{pd: &pb.PositionData{}}
 }
 
+// Update - Обновление позиций
 func (p *Positions) Update(data *pb.PositionData) {
 	p.mx.Lock()
 	p.pd = data
 	p.mx.Unlock()
 }
 
+// Get - получение позиций
 func (p *Positions) Get() *pb.PositionData {
 	p.mx.Lock()
 	defer p.mx.Unlock()
@@ -53,6 +56,9 @@ type Executor struct {
 	lastPrices map[string]float64
 	positions  *Positions
 
+	wg     *sync.WaitGroup
+	cancel context.CancelFunc
+
 	client            *investgo.Client
 	ordersService     *investgo.OrdersServiceClient
 	operationsService *investgo.OperationsServiceClient
@@ -60,26 +66,146 @@ type Executor struct {
 
 // NewExecutor - Создание экземпляра исполнителя
 func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrument, minProfit float64) *Executor {
+	ctxExecutor, cancel := context.WithCancel(ctx)
+	wg := &sync.WaitGroup{}
 	e := &Executor{
 		instruments:       ids,
+		minProfit:         minProfit,
 		lastPrices:        make(map[string]float64, len(ids)),
+		positions:         NewPositions(),
+		wg:                wg,
+		cancel:            cancel,
 		client:            c,
 		ordersService:     c.NewOrdersServiceClient(),
 		operationsService: c.NewOperationsServiceClient(),
-		minProfit:         minProfit,
-		positions:         NewPositions(),
 	}
+	e.start(ctxExecutor)
+	return e
+}
 
+// Stop - Завершение работы
+func (e *Executor) Stop() {
+	e.cancel()
+	e.wg.Wait()
+	e.client.Logger.Infof("executor stopped")
+}
+
+func (e *Executor) start(ctx context.Context) {
+	e.wg.Add(1)
 	go func(ctx context.Context) {
-		err := e.updatePositions(ctx)
+		defer e.wg.Done()
+		err := e.listenPositions(ctx)
 		if err != nil {
 			e.client.Logger.Errorf(err.Error())
 		}
 	}(ctx)
 
-	return e
+	e.wg.Add(1)
+	go func(ctx context.Context) {
+		defer e.wg.Done()
+		err := e.listenLastPrices(ctx)
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}(ctx)
 }
 
+// listenPositions - Метод слушает стрим позиций и обновляет их
+func (e *Executor) listenPositions(ctx context.Context) error {
+	err := e.updatePositionsUnary()
+	if err != nil {
+		return err
+	}
+	operationsStreamService := e.client.NewOperationsStreamClient()
+	stream, err := operationsStreamService.PositionsStream([]string{e.client.Config.AccountId})
+	if err != nil {
+		return err
+	}
+	positionsChan := stream.Positions()
+
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		err := stream.Listen()
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}()
+
+	e.wg.Add(1)
+	go func(ctx context.Context) {
+		defer e.wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case p, ok := <-positionsChan:
+				if !ok {
+					return
+				}
+				e.client.Logger.Infof("update from positions stream %v\n", p.GetMoney())
+				e.positions.Update(p)
+			}
+		}
+	}(ctx)
+
+	<-ctx.Done()
+	e.client.Logger.Infof("stop updating positions in executor")
+	stream.Stop()
+	return nil
+}
+
+func (e *Executor) listenLastPrices(ctx context.Context) error {
+	MarketDataStreamService := e.client.NewMarketDataStreamClient()
+	stream, err := MarketDataStreamService.MarketDataStream()
+	if err != nil {
+		return err
+	}
+
+	ids := make([]string, 0, len(e.instruments))
+	for id := range e.instruments {
+		ids = append(ids, id)
+	}
+	lastPricesChan, err := stream.SubscribeLastPrice(ids)
+	if err != nil {
+		return err
+	}
+
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		err := stream.Listen()
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}()
+
+	// чтение из стрима
+	e.wg.Add(1)
+	go func(ctx context.Context) {
+		defer e.wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-lastPricesChan:
+				if !ok {
+					return
+				}
+				// обновление данных в мапе последних цен
+				// b.executor.lastPrices[lp.GetInstrumentUid()] = lp.GetPrice().ToFloat()
+				// update map
+			}
+		}
+	}(ctx)
+
+	<-ctx.Done()
+	e.client.Logger.Infof("stop updating last prices in executor")
+	stream.Stop()
+	return nil
+}
+
+// updatePositionsUnary - Unary метод обновления позиций
 func (e *Executor) updatePositionsUnary() error {
 	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
 	if err != nil {
@@ -123,46 +249,6 @@ func (e *Executor) updatePositionsUnary() error {
 		Date:       investgo.TimeToTimestamp(time.Now()),
 	})
 
-	return nil
-}
-
-func (e *Executor) updatePositions(ctx context.Context) error {
-	err := e.updatePositionsUnary()
-	if err != nil {
-		return err
-	}
-	operationsStreamService := e.client.NewOperationsStreamClient()
-	stream, err := operationsStreamService.PositionsStream([]string{e.client.Config.AccountId})
-	if err != nil {
-		return err
-	}
-	positionsChan := stream.Positions()
-
-	go func() {
-		err := stream.Listen()
-		if err != nil {
-			e.client.Logger.Errorf(err.Error())
-		}
-	}()
-
-	go func(ctx context.Context) {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case p, ok := <-positionsChan:
-				if !ok {
-					return
-				}
-				e.client.Logger.Infof("update from positions stream %v\n", p.GetMoney())
-				e.positions.Update(p)
-			}
-		}
-	}(ctx)
-
-	<-ctx.Done()
-	e.client.Logger.Infof("stop updating positions in executor")
-	stream.Stop()
 	return nil
 }
 
@@ -229,10 +315,12 @@ func (e *Executor) Sell(id string) (float64, error) {
 	return profit, nil
 }
 
+// isProfitable - Верно если процент выгоды возможной сделки, рассчитанный по цене последней сделки, больше чем minProfit
 func (e *Executor) isProfitable(id string) bool {
 	return ((e.lastPrices[id]-e.instruments[id].entryPrice)/e.instruments[id].entryPrice)*100 > e.minProfit
 }
 
+// possibleToBuy - Проверка возможности купить инструмент
 func (e *Executor) possibleToBuy(id string) bool {
 	// требуемая сумма для покупки
 	// кол-во лотов * лотность * стоимость 1 инструмента
