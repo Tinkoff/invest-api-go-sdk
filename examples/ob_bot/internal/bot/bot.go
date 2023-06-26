@@ -226,7 +226,7 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 	money := resp.GetMoney()
 	for _, m := range money {
 		b.Client.Logger.Infof("money balance = %v %v", m.ToFloat(), m.GetCurrency())
-		if strings.ToLower(m.GetCurrency()) == strings.ToLower(currency) {
+		if strings.EqualFold(m.GetCurrency(), currency) {
 			balance = m.ToFloat()
 		}
 	}
