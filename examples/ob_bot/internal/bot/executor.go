@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"sync"
@@ -52,23 +53,25 @@ type Executor struct {
 	lastPrices map[string]float64
 	positions  *Positions
 
-	client        *investgo.Client
-	ordersService *investgo.OrdersServiceClient
+	client            *investgo.Client
+	ordersService     *investgo.OrdersServiceClient
+	operationsService *investgo.OperationsServiceClient
 }
 
 // NewExecutor - Создание экземпляра исполнителя
 func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrument, minProfit float64) *Executor {
 	e := &Executor{
-		instruments:   ids,
-		lastPrices:    make(map[string]float64, len(ids)),
-		client:        c,
-		ordersService: c.NewOrdersServiceClient(),
-		minProfit:     minProfit,
-		positions:     NewPositions(),
+		instruments:       ids,
+		lastPrices:        make(map[string]float64, len(ids)),
+		client:            c,
+		ordersService:     c.NewOrdersServiceClient(),
+		operationsService: c.NewOperationsServiceClient(),
+		minProfit:         minProfit,
+		positions:         NewPositions(),
 	}
 
 	go func(ctx context.Context) {
-		err := e.checkPositions(ctx)
+		err := e.updatePositions(ctx)
 		if err != nil {
 			e.client.Logger.Errorf(err.Error())
 		}
@@ -77,10 +80,8 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 	return e
 }
 
-func (e *Executor) UpdatePositions() error {
-	operationsService := e.client.NewOperationsServiceClient()
-
-	resp, err := operationsService.GetPositions(e.client.Config.AccountId)
+func (e *Executor) UpdateBalance() error {
+	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
 	if err != nil {
 		return err
 	}
@@ -98,8 +99,8 @@ func (e *Executor) UpdatePositions() error {
 	return nil
 }
 
-func (e *Executor) checkPositions(ctx context.Context) error {
-	err := e.UpdatePositions()
+func (e *Executor) updatePositions(ctx context.Context) error {
+	err := e.UpdateBalance()
 	if err != nil {
 		return err
 	}
@@ -126,6 +127,7 @@ func (e *Executor) checkPositions(ctx context.Context) error {
 				if !ok {
 					return
 				}
+				fmt.Printf("from stream %v\n", p.GetMoney())
 				e.positions.Update(p)
 			}
 		}
