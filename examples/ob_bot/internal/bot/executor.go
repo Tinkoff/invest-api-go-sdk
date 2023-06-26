@@ -21,6 +21,30 @@ type Instrument struct {
 	entryPrice float64
 }
 
+type LastPrices struct {
+	mx sync.Mutex
+	lp map[string]float64
+}
+
+func NewLastPrices() *LastPrices {
+	return &LastPrices{
+		lp: make(map[string]float64, 0),
+	}
+}
+
+func (l *LastPrices) Update(id string, price float64) {
+	l.mx.Lock()
+	l.lp[id] = price
+	l.mx.Unlock()
+}
+
+func (l *LastPrices) Get(id string) (float64, bool) {
+	l.mx.Lock()
+	defer l.mx.Unlock()
+	p, ok := l.lp[id]
+	return p, ok
+}
+
 // Positions - Данные о позициях счета
 type Positions struct {
 	mx sync.Mutex
@@ -28,7 +52,9 @@ type Positions struct {
 }
 
 func NewPositions() *Positions {
-	return &Positions{pd: &pb.PositionData{}}
+	return &Positions{
+		pd: &pb.PositionData{},
+	}
 }
 
 // Update - Обновление позиций
@@ -52,8 +78,7 @@ type Executor struct {
 	// minProfit - Процент минимального профита, после которого выставляются рыночные заявки
 	minProfit float64
 
-	// lastPrices - Мапа последних цен по инструментам, бот в нее пишет, исполнитель читает
-	lastPrices map[string]float64
+	lastPrices *LastPrices
 	positions  *Positions
 
 	wg     *sync.WaitGroup
@@ -68,10 +93,11 @@ type Executor struct {
 func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrument, minProfit float64) *Executor {
 	ctxExecutor, cancel := context.WithCancel(ctx)
 	wg := &sync.WaitGroup{}
+
 	e := &Executor{
 		instruments:       ids,
 		minProfit:         minProfit,
-		lastPrices:        make(map[string]float64, len(ids)),
+		lastPrices:        NewLastPrices(),
 		positions:         NewPositions(),
 		wg:                wg,
 		cancel:            cancel,
@@ -188,13 +214,11 @@ func (e *Executor) listenLastPrices(ctx context.Context) error {
 			select {
 			case <-ctx.Done():
 				return
-			case _, ok := <-lastPricesChan:
+			case lp, ok := <-lastPricesChan:
 				if !ok {
 					return
 				}
-				// обновление данных в мапе последних цен
-				// b.executor.lastPrices[lp.GetInstrumentUid()] = lp.GetPrice().ToFloat()
-				// update map
+				e.lastPrices.Update(lp.GetInstrumentUid(), lp.GetPrice().ToFloat())
 			}
 		}
 	}(ctx)
@@ -317,14 +341,23 @@ func (e *Executor) Sell(id string) (float64, error) {
 
 // isProfitable - Верно если процент выгоды возможной сделки, рассчитанный по цене последней сделки, больше чем minProfit
 func (e *Executor) isProfitable(id string) bool {
-	return ((e.lastPrices[id]-e.instruments[id].entryPrice)/e.instruments[id].entryPrice)*100 > e.minProfit
+	lp, ok := e.lastPrices.Get(id)
+	if !ok {
+		return false
+	}
+	return ((lp-e.instruments[id].entryPrice)/e.instruments[id].entryPrice)*100 > e.minProfit
 }
 
 // possibleToBuy - Проверка возможности купить инструмент
 func (e *Executor) possibleToBuy(id string) bool {
 	// требуемая сумма для покупки
 	// кол-во лотов * лотность * стоимость 1 инструмента
-	required := float64(e.instruments[id].quantity) * float64(e.instruments[id].lot) * e.lastPrices[id]
+	//return true
+	lp, ok := e.lastPrices.Get(id)
+	if !ok {
+		return false
+	}
+	required := float64(e.instruments[id].quantity) * float64(e.instruments[id].lot) * lp
 	positionMoney := e.positions.Get().GetMoney()
 	var moneyInFloat float64
 	for _, pm := range positionMoney {
