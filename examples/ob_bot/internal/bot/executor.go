@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"fmt"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"sync"
@@ -155,7 +154,7 @@ func (e *Executor) updatePositions(ctx context.Context) error {
 				if !ok {
 					return
 				}
-				fmt.Printf("from stream %v\n", p.GetMoney())
+				e.client.Logger.Infof("update from positions stream %v\n", p.GetMoney())
 				e.positions.Update(p)
 			}
 		}
@@ -246,6 +245,17 @@ func (e *Executor) possibleToBuy(id string) bool {
 			moneyInFloat = m.ToFloat()
 		}
 	}
+
+	// TODO убрать, когда починят стрим
+	if moneyInFloat < 0 {
+		e.client.Logger.Infof("balance < 0, update positions by unary call")
+		err := e.updatePositionsUnary()
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+		return e.possibleToBuy(id)
+	}
+
 	// TODO сравнение дробных чисел
 	if moneyInFloat < required {
 		e.client.Logger.Infof("executor: not enough money to buy order")
