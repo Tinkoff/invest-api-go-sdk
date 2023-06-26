@@ -232,7 +232,12 @@ func (e *Executor) possibleToSell() {
 // SellOut - Метод выхода из всех текущих позиций
 func (e *Executor) SellOut() error {
 	// TODO for futures and options
-	securities := e.positions.Get().GetSecurities()
+	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
+	if err != nil {
+		return err
+	}
+
+	securities := resp.GetSecurities()
 	for _, security := range securities {
 		var lot int64
 		instrument, ok := e.instruments[security.GetInstrumentUid()]
