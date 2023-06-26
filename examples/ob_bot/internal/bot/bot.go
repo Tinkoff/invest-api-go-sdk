@@ -240,7 +240,7 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 	money := resp.GetMoney()
 	for _, m := range money {
 		b.Client.Logger.Infof("money balance = %v %v", m.ToFloat(), m.GetCurrency())
-		if m.GetCurrency() == currency {
+		if strings.ToLower(m.GetCurrency()) == strings.ToLower(currency) {
 			balance = m.ToFloat()
 		}
 	}
@@ -258,7 +258,7 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 				return err
 			}
 			b.Client.Logger.Infof("sandbox auto pay in, balance = %v", resp.GetBalance().ToFloat())
-			err = b.executor.UpdateBalance()
+			err = b.executor.updatePositionsUnary()
 			if err != nil {
 				return err
 			}

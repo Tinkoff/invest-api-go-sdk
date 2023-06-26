@@ -6,6 +6,7 @@ import (
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"sync"
+	"time"
 )
 
 type Instrument struct {
@@ -80,27 +81,54 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 	return e
 }
 
-func (e *Executor) UpdateBalance() error {
+func (e *Executor) updatePositionsUnary() error {
 	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
 	if err != nil {
 		return err
 	}
+	// два слайса *MoneyValue
+	available := resp.GetMoney()
+	blocked := resp.GetBlocked()
 
-	money := resp.GetMoney()
+	// слайс *PositionMoney
 	positionMoney := make([]*pb.PositionsMoney, 0)
-	for _, m := range money {
-		positionMoney = append(positionMoney, &pb.PositionsMoney{
-			AvailableValue: m,
+	// ключ - код валюты, значение - *PositionMoney
+	moneyByCurrency := make(map[string]*pb.PositionsMoney, 0)
+
+	for _, avail := range available {
+		moneyByCurrency[avail.GetCurrency()] = &pb.PositionsMoney{
+			AvailableValue: avail,
 			BlockedValue:   nil,
-		})
+		}
 	}
-	// обновляем баланс для исполнителя
-	e.positions.Update(&pb.PositionData{Money: positionMoney})
+
+	for _, block := range blocked {
+		m := moneyByCurrency[block.GetCurrency()]
+		moneyByCurrency[block.GetCurrency()] = &pb.PositionsMoney{
+			AvailableValue: m.GetAvailableValue(),
+			BlockedValue:   block,
+		}
+	}
+
+	for _, money := range moneyByCurrency {
+		positionMoney = append(positionMoney, money)
+	}
+
+	// обновляем позиции для исполнителя
+	e.positions.Update(&pb.PositionData{
+		AccountId:  e.client.Config.AccountId,
+		Money:      positionMoney,
+		Securities: resp.GetSecurities(),
+		Futures:    resp.GetFutures(),
+		Options:    resp.GetOptions(),
+		Date:       investgo.TimeToTimestamp(time.Now()),
+	})
+
 	return nil
 }
 
 func (e *Executor) updatePositions(ctx context.Context) error {
-	err := e.UpdateBalance()
+	err := e.updatePositionsUnary()
 	if err != nil {
 		return err
 	}
