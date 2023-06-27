@@ -101,10 +101,8 @@ MaxRetries uint `yaml:"MaxRetries"`
 отключить ретраер для ошибки `ResourceExhausted`, по умолчанию он включен и в случае превышения лимитов Unary - запросов,
 ретраер ждет нужное время и продолжает выполнение, *при этом никакого сообщения об ошибке для клиента нет*.
 
-#### Пример использования MarketDataStreamService
-
 <details>
-    <summary>Пример использования MarketDataStreamService</summary>
+    <summary> Пример использования MarketDataStreamService </summary>
 
 ```go
 package main
