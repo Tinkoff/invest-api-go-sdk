@@ -22,7 +22,6 @@ type Timer struct {
 	exchange           string
 	lastEvent          Event
 	cancel             context.CancelFunc
-	ticker             chan struct{}
 	events             chan Event
 }
 
@@ -32,7 +31,6 @@ func NewTimer(c *Client, exchange string) *Timer {
 		client:             c,
 		instrumentsService: c.NewInstrumentsServiceClient(),
 		exchange:           exchange,
-		ticker:             make(chan struct{}, 1),
 		events:             make(chan Event, 1),
 	}
 }
@@ -53,7 +51,7 @@ func (t *Timer) Start(ctx context.Context) error {
 		select {
 		case <-ctxTimer.Done():
 			return nil
-		case <-t.ticker:
+		default:
 			// получаем текущее время
 			from := time.Now()
 			to := from.Add(time.Hour * 24)
@@ -88,20 +86,22 @@ func (t *Timer) Start(ctx context.Context) error {
 			switch {
 			// если торги еще не начались
 			case time.Now().Before(today.GetStartTime().AsTime()):
+				t.client.Logger.Infof("%v is closed yet, wait for start %v", t.exchange, time.Until(today.GetStartTime().AsTime().Local()))
 				t.Wait(ctxTimer, time.Until(today.GetStartTime().AsTime().Local()))
 				t.events <- START
+				t.client.Logger.Infof("start trading session, remaining time = %v", time.Until(today.GetEndTime().AsTime().Local()))
 				t.Wait(ctxTimer, time.Until(today.GetEndTime().AsTime().Local()))
 				t.events <- STOP
 				// если сегодня торги уже идут
 			case time.Now().After(today.GetStartTime().AsTime()) && time.Now().Before(today.GetEndTime().AsTime().Local()):
-				t.client.Logger.Infof("now is trading time, sleep for %v", today.GetEndTime().AsTime().Local().String())
+				t.client.Logger.Infof("start trading session, remaining time = %v", time.Until(today.GetEndTime().AsTime().Local()))
 				t.events <- START
 				t.Wait(ctxTimer, time.Until(today.GetEndTime().AsTime().Local()))
 				t.events <- STOP
 				// если на сегодня торги уже окончены
 			case time.Now().After(today.GetEndTime().AsTime().Local()):
 				// спать час, пока не дождемся следующего дня
-				t.client.Logger.Infof("%v closed, wait next day", t.exchange)
+				t.client.Logger.Infof("%v is already closed, wait next day for 1 hour", t.exchange)
 				t.Wait(ctxTimer, time.Hour)
 			}
 		}
@@ -116,7 +116,6 @@ func (t *Timer) Stop() {
 func (t *Timer) shutdown() {
 	t.client.Logger.Infof("stop %v timer", t.exchange)
 	close(t.events)
-	close(t.ticker)
 }
 
 func (t *Timer) Wait(ctx context.Context, dur time.Duration) {
@@ -126,7 +125,6 @@ func (t *Timer) Wait(ctx context.Context, dur time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-tim.C:
-			// t.ticker <- struct{}{}
 			return
 		}
 	}
