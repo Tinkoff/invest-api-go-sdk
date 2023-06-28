@@ -20,17 +20,19 @@ type Timer struct {
 	client             *Client
 	instrumentsService *InstrumentsServiceClient
 	exchange           string
-	lastEvent          Event
-	cancel             context.CancelFunc
-	events             chan Event
+	// cancelAhead - Событие STOP будет отправлено в канал за cancelAhead до конца торгов
+	cancelAhead time.Duration
+	cancel      context.CancelFunc
+	events      chan Event
 }
 
 // NewTimer - Таймер сигнализирует о начале/завершении основной торговой сессии на конкретной бирже
-func NewTimer(c *Client, exchange string) *Timer {
+func NewTimer(c *Client, exchange string, cancelAhead time.Duration) *Timer {
 	return &Timer{
 		client:             c,
 		instrumentsService: c.NewInstrumentsServiceClient(),
 		exchange:           exchange,
+		cancelAhead:        cancelAhead,
 		events:             make(chan Event, 1),
 	}
 }
@@ -45,8 +47,6 @@ func (t *Timer) Start(ctx context.Context) error {
 	defer t.shutdown()
 	ctxTimer, cancel := context.WithCancel(ctx)
 	t.cancel = cancel
-	//
-	t.Wait(ctxTimer, 0)
 	for {
 		select {
 		case <-ctxTimer.Done():
@@ -88,12 +88,12 @@ func (t *Timer) Start(ctx context.Context) error {
 			// если торги еще не начались
 			case time.Now().Before(today.GetStartTime().AsTime()):
 				t.client.Logger.Infof("%v is closed yet, wait for start %v", t.exchange, time.Until(today.GetStartTime().AsTime().Local()))
-				if stop := t.Wait(ctxTimer, time.Until(today.GetStartTime().AsTime().Local())); stop {
+				if stop := t.wait(ctxTimer, time.Until(today.GetStartTime().AsTime().Local())); stop {
 					return nil
 				}
 				t.events <- START
 				t.client.Logger.Infof("start trading session, remaining time = %v", time.Until(today.GetEndTime().AsTime().Local()))
-				if stop := t.Wait(ctxTimer, time.Until(today.GetEndTime().AsTime().Local())); stop {
+				if stop := t.wait(ctxTimer, time.Until(today.GetEndTime().AsTime().Local())-t.cancelAhead); stop {
 					return nil
 				}
 				t.events <- STOP
@@ -101,7 +101,7 @@ func (t *Timer) Start(ctx context.Context) error {
 			case time.Now().After(today.GetStartTime().AsTime()) && time.Now().Before(today.GetEndTime().AsTime().Local()):
 				t.client.Logger.Infof("start trading session, remaining time = %v", time.Until(today.GetEndTime().AsTime().Local()))
 				t.events <- START
-				if stop := t.Wait(ctxTimer, time.Until(today.GetEndTime().AsTime().Local())); stop {
+				if stop := t.wait(ctxTimer, time.Until(today.GetEndTime().AsTime().Local())-t.cancelAhead); stop {
 					return nil
 				}
 				t.events <- STOP
@@ -109,7 +109,7 @@ func (t *Timer) Start(ctx context.Context) error {
 			case time.Now().After(today.GetEndTime().AsTime().Local()):
 				// спать час, пока не дождемся следующего дня
 				t.client.Logger.Infof("%v is already closed, wait next day for 1 hour", t.exchange)
-				if stop := t.Wait(ctxTimer, time.Hour); stop {
+				if stop := t.wait(ctxTimer, time.Hour); stop {
 					return nil
 				}
 			}
@@ -119,6 +119,7 @@ func (t *Timer) Start(ctx context.Context) error {
 
 // Stop - Завершение работы таймера
 func (t *Timer) Stop() {
+	t.events <- STOP
 	t.cancel()
 }
 
@@ -127,7 +128,8 @@ func (t *Timer) shutdown() {
 	close(t.events)
 }
 
-func (t *Timer) Wait(ctx context.Context, dur time.Duration) bool {
+// wait - Ожидание, с возможностью отмены по контексту
+func (t *Timer) wait(ctx context.Context, dur time.Duration) bool {
 	tim := time.NewTimer(dur)
 	for {
 		select {
