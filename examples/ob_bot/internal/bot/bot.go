@@ -7,7 +7,6 @@ import (
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"strings"
 	"sync"
-	"time"
 )
 
 // QUANTITY - Кол-во лотов инструментов, которыми торгует бот
@@ -27,9 +26,9 @@ type OrderBookStrategyConfig struct {
 	MinProfit float64
 	// SellOut - Если true, то по достижению дедлайна бот выходит из всех активных позиций
 	SellOut bool
-	// (Дедлайн интрадей торговли - SellOutAhead) - это момент времени, когда бот начнет продавать
-	// все активные позиции
-	SellOutAhead time.Duration
+	//// (Дедлайн интрадей торговли - SellOutAhead) - это момент времени, когда бот начнет продавать
+	//// все активные позиции
+	//SellOutAhead time.Duration
 }
 
 type Bot struct {
@@ -44,12 +43,8 @@ type Bot struct {
 
 // NewBot - Создание экземпляра бота на стакане
 // dd - дедлайн работы бота для интрадей торговли
-func NewBot(ctx context.Context, c *investgo.Client, dd time.Time, config OrderBookStrategyConfig) (*Bot, error) {
-	botCtx, cancelBot := context.WithDeadline(ctx, dd)
-	// если нужно выходить из позиций, то бот будет завершать свою работу раньше чем дедлайн
-	if config.SellOut {
-		botCtx, cancelBot = context.WithDeadline(botCtx, dd.Add(-config.SellOutAhead))
-	}
+func NewBot(ctx context.Context, c *investgo.Client, config OrderBookStrategyConfig) (*Bot, error) {
+	botCtx, cancelBot := context.WithCancel(ctx)
 
 	// по конфигу стратегии заполняем map для executor
 	instrumentService := c.NewInstrumentsServiceClient()
