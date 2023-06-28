@@ -83,26 +83,35 @@ func (t *Timer) Start(ctx context.Context) error {
 				}
 
 			}
+
 			switch {
 			// если торги еще не начались
 			case time.Now().Before(today.GetStartTime().AsTime()):
 				t.client.Logger.Infof("%v is closed yet, wait for start %v", t.exchange, time.Until(today.GetStartTime().AsTime().Local()))
-				t.Wait(ctxTimer, time.Until(today.GetStartTime().AsTime().Local()))
+				if stop := t.Wait(ctxTimer, time.Until(today.GetStartTime().AsTime().Local())); stop {
+					return nil
+				}
 				t.events <- START
 				t.client.Logger.Infof("start trading session, remaining time = %v", time.Until(today.GetEndTime().AsTime().Local()))
-				t.Wait(ctxTimer, time.Until(today.GetEndTime().AsTime().Local()))
+				if stop := t.Wait(ctxTimer, time.Until(today.GetEndTime().AsTime().Local())); stop {
+					return nil
+				}
 				t.events <- STOP
 				// если сегодня торги уже идут
 			case time.Now().After(today.GetStartTime().AsTime()) && time.Now().Before(today.GetEndTime().AsTime().Local()):
 				t.client.Logger.Infof("start trading session, remaining time = %v", time.Until(today.GetEndTime().AsTime().Local()))
 				t.events <- START
-				t.Wait(ctxTimer, time.Until(today.GetEndTime().AsTime().Local()))
+				if stop := t.Wait(ctxTimer, time.Until(today.GetEndTime().AsTime().Local())); stop {
+					return nil
+				}
 				t.events <- STOP
 				// если на сегодня торги уже окончены
 			case time.Now().After(today.GetEndTime().AsTime().Local()):
 				// спать час, пока не дождемся следующего дня
 				t.client.Logger.Infof("%v is already closed, wait next day for 1 hour", t.exchange)
-				t.Wait(ctxTimer, time.Hour)
+				if stop := t.Wait(ctxTimer, time.Hour); stop {
+					return nil
+				}
 			}
 		}
 	}
@@ -118,14 +127,14 @@ func (t *Timer) shutdown() {
 	close(t.events)
 }
 
-func (t *Timer) Wait(ctx context.Context, dur time.Duration) {
+func (t *Timer) Wait(ctx context.Context, dur time.Duration) bool {
 	tim := time.NewTimer(dur)
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return true
 		case <-tim.C:
-			return
+			return false
 		}
 	}
 }
