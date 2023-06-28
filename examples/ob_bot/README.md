@@ -48,7 +48,9 @@ type OrderBookStrategyConfig struct {
 
 ### Запуск 
 
-    $ cd examples/ob_bot
+    $ git clone https://github.com/tinkoff/invest-api-go-sdk
+
+    $ cd invest-api-go-sdk/examples/ob_bot
 
 Создайте файл `config.yaml`
 
