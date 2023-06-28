@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"github.com/tinkoff/invest-api-go-sdk/examples/ob_bot/internal/bot"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
@@ -10,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -87,72 +87,71 @@ func main() {
 
 	// конфиг стратегии бота на стакане
 	orderBookConfig := bot.OrderBookStrategyConfig{
-		Instruments:  instruments,
-		Depth:        20,
-		BuyRatio:     2,
-		SellRatio:    2,
-		MinProfit:    0.5,
-		SellOut:      true,
-		SellOutAhead: 10 * time.Minute,
-	}
-
-	// дедлайн для интрадей торговли
-	dd, err := tradingDeadLine(client, EXCHANGE)
-	if err != nil {
-		logger.Fatalf(err.Error())
+		Instruments: instruments,
+		Depth:       20,
+		BuyRatio:    2,
+		SellRatio:   2,
+		MinProfit:   0.5,
+		SellOut:     true,
 	}
 
 	// создание и запуск бота
-	botOnOrderBook, err := bot.NewBot(ctx, client, dd, orderBookConfig)
+	botOnOrderBook, err := bot.NewBot(ctx, client, orderBookConfig)
 	if err != nil {
 		logger.Fatalf("bot on order book creating fail %v", err.Error())
 	}
 
+	wg := &sync.WaitGroup{}
+	// Таймер для Московской биржи, отслеживает расписание и дает сигналы, на остановку/запуск бота
+	// cancelAhead - Событие STOP будет отправлено в канал за cancelAhead до конца торгов
+	cancelAhead := time.Minute * 5
+	t := investgo.NewTimer(client, "MOEX", cancelAhead)
+
+	// запуск таймера
+	wg.Add(1)
+	go func(ctx context.Context) {
+		defer wg.Done()
+		err := t.Start(ctx)
+		if err != nil {
+			logger.Errorf(err.Error())
+		}
+	}(ctx)
+
 	go func() {
 		<-sigs
-		botOnOrderBook.Stop()
+		t.Stop()
 	}()
 
-	err = botOnOrderBook.Run()
-	if err != nil {
-		logger.Errorf(err.Error())
-	}
-}
-
-// tradingDeadLine - возвращает дедлайн торгов на сегодня, или ошибку если торговля на бирже сейчас недоступна
-func tradingDeadLine(client *investgo.Client, exchange string) (time.Time, error) {
-	from := time.Now()
-	// так как основная сессия на бирже не больше 9 часов
-	to := from.Add(time.Hour * 9)
-
-	instrumentsService := client.NewInstrumentsServiceClient()
-	resp, err := instrumentsService.TradingSchedules(exchange, from, to)
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	var deadLine time.Time
-	exchanges := resp.GetExchanges()
-	for _, exch := range exchanges {
-		// если нужная биржа
-		if exch.GetExchange() == exchange {
-			for _, day := range exch.GetDays() {
-				// если день совпадает с днем запроса
-				if from.Day() == day.GetDate().AsTime().Day() {
-					switch {
-					// выходной
-					case !day.GetIsTradingDay():
-						return time.Time{}, errors.New("trading isn't available today")
-					// основная сессия либо еще не началась, либо уже закончилась
-					case from.Before(day.GetStartTime().AsTime().Local()) || from.After(day.GetEndTime().AsTime().Local()):
-						return time.Time{}, errors.New("from don't belong trading time")
-					// положительный случай, возвращаем остаток до конца основной сессии
-					case from.After(day.GetStartTime().AsTime().Local()) && from.Before(day.GetEndTime().AsTime().Local()):
-						deadLine = day.GetEndTime().AsTime().Local()
-					}
+	// чтение событий от таймера
+	events := t.Events()
+	wg.Add(1)
+	go func(ctx context.Context) {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-events:
+				if !ok {
+					return
+				}
+				logger.Infof("got event = %v", ev)
+				switch ev {
+				case investgo.START:
+					wg.Add(1)
+					go func(ctx context.Context) {
+						defer wg.Done()
+						err = botOnOrderBook.Run()
+						if err != nil {
+							logger.Errorf(err.Error())
+						}
+					}(ctx)
+				case investgo.STOP:
+					botOnOrderBook.Stop()
 				}
 			}
 		}
-	}
-	return deadLine, nil
+	}(ctx)
+
+	wg.Wait()
 }
