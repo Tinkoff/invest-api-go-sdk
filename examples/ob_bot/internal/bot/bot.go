@@ -26,9 +26,6 @@ type OrderBookStrategyConfig struct {
 	MinProfit float64
 	// SellOut - Если true, то по достижению дедлайна бот выходит из всех активных позиций
 	SellOut bool
-	//// (Дедлайн интрадей торговли - SellOutAhead) - это момент времени, когда бот начнет продавать
-	//// все активные позиции
-	//SellOutAhead time.Duration
 }
 
 type Bot struct {
@@ -42,7 +39,6 @@ type Bot struct {
 }
 
 // NewBot - Создание экземпляра бота на стакане
-// dd - дедлайн работы бота для интрадей торговли
 func NewBot(ctx context.Context, c *investgo.Client, config OrderBookStrategyConfig) (*Bot, error) {
 	botCtx, cancelBot := context.WithCancel(ctx)
 
