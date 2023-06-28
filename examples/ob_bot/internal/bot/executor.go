@@ -176,7 +176,7 @@ func (e *Executor) listenPositions(ctx context.Context) error {
 				if !ok {
 					return
 				}
-				e.client.Logger.Infof("update from positions stream %v\n", p.GetMoney())
+				// e.client.Logger.Infof("update from positions stream %v\n", p.GetMoney())
 				e.positions.Update(p)
 			}
 		}
@@ -375,19 +375,9 @@ func (e *Executor) possibleToBuy(id string) bool {
 		}
 	}
 
-	// TODO убрать, когда починят стрим
-	if moneyInFloat < 0 {
-		e.client.Logger.Infof("balance < 0, update positions by unary call")
-		err := e.updatePositionsUnary()
-		if err != nil {
-			e.client.Logger.Errorf(err.Error())
-		}
-		return e.possibleToBuy(id)
-	}
-
-	// TODO сравнение дробных чисел
+	// TODO сравнение дробных чисел, реакция на недостаток баланса
 	if moneyInFloat < required {
-		e.client.Logger.Infof("executor: not enough money to buy order")
+		e.client.Logger.Infof("executor: not enough money to buy order with id = %v", id)
 	}
 	return moneyInFloat > required
 }

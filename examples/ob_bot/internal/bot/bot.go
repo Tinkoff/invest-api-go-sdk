@@ -136,7 +136,7 @@ func (b *Bot) Run() error {
 		if err != nil {
 			b.Client.Logger.Errorf(err.Error())
 		}
-		b.Client.Logger.Infof("profit by strategy = %v", profit)
+		b.Client.Logger.Infof("profit by strategy = %.9f", profit)
 	}(b.ctx)
 
 	// Завершение работы бота по его контексту: вызов Stop() или отмена по дедлайну
