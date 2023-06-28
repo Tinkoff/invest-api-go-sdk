@@ -95,7 +95,7 @@ func main() {
 		SellOut:     true,
 	}
 
-	// создание и запуск бота
+	// создание бота на стакане
 	botOnOrderBook, err := bot.NewBot(ctx, client, orderBookConfig)
 	if err != nil {
 		logger.Fatalf("bot on order book creating fail %v", err.Error())
@@ -117,12 +117,13 @@ func main() {
 		}
 	}(ctx)
 
+	// по сигналам останавливаем таймер
 	go func() {
 		<-sigs
 		t.Stop()
 	}()
 
-	// чтение событий от таймера
+	// чтение событий от таймера и управление ботом
 	events := t.Events()
 	wg.Add(1)
 	go func(ctx context.Context) {
@@ -138,15 +139,17 @@ func main() {
 				logger.Infof("got event = %v", ev)
 				switch ev {
 				case investgo.START:
+					// запуск бота
 					wg.Add(1)
-					go func(ctx context.Context) {
+					go func() {
 						defer wg.Done()
 						err = botOnOrderBook.Run()
 						if err != nil {
 							logger.Errorf(err.Error())
 						}
-					}(ctx)
+					}()
 				case investgo.STOP:
+					// остановка бота
 					botOnOrderBook.Stop()
 				}
 			}
