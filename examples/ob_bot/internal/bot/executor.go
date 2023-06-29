@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"sync"
@@ -286,7 +287,10 @@ func (e *Executor) updatePositionsUnary() error {
 
 // Buy - Метод покупки инструмента с идентификатором id
 func (e *Executor) Buy(id string) error {
-	currentInstrument := e.instruments[id]
+	currentInstrument, ok := e.instruments[id]
+	if !ok {
+		return fmt.Errorf("instrument %v not found in executor map", id)
+	}
 	// если этот инструмент уже куплен ботом
 	if currentInstrument.inStock {
 		return nil
@@ -317,7 +321,10 @@ func (e *Executor) Buy(id string) error {
 
 // Sell - Метод покупки инструмента с идентификатором id
 func (e *Executor) Sell(id string) (float64, error) {
-	currentInstrument := e.instruments[id]
+	currentInstrument, ok := e.instruments[id]
+	if !ok {
+		return 0, fmt.Errorf("instrument %v not found in executor map", id)
+	}
 	if !currentInstrument.inStock {
 		return 0, nil
 	}
