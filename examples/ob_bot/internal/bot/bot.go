@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"math"
 	"strings"
 	"sync"
 )
@@ -16,6 +17,11 @@ const QUANTITY = 1
 type OrderBookStrategyConfig struct {
 	// Instruments - слайс идентификаторов инструментов
 	Instruments []string
+	// Currency - ISO-код валюты инструментов
+	Currency string
+	// RequiredMoneyBalance - Минимальный баланс денежных средств в Currency для начала торгов.
+	// Для песочницы пополнится автоматически.
+	RequiredMoneyBalance float64
 	// Depth - Глубина стакана
 	Depth int32
 	//  Если кол-во бид/аск больше чем BuyRatio - покупаем
@@ -74,7 +80,7 @@ func NewBot(ctx context.Context, c *investgo.Client, config OrderBookStrategyCon
 func (b *Bot) Run() error {
 	wg := &sync.WaitGroup{}
 
-	err := b.checkMoneyBalance("RUB", 200000)
+	err := b.checkMoneyBalance(b.StrategyConfig.Currency, b.StrategyConfig.RequiredMoneyBalance)
 	if err != nil {
 		b.Client.Logger.Fatalf(err.Error())
 	}
@@ -229,12 +235,13 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 
 	if diff := balance - required; diff < 0 {
 		if strings.HasPrefix(b.Client.Config.EndPoint, "sandbox") {
+			units, nano := math.Modf(diff)
 			sandbox := b.Client.NewSandboxServiceClient()
 			resp, err := sandbox.SandboxPayIn(&investgo.SandboxPayInRequest{
 				AccountId: b.Client.Config.AccountId,
 				Currency:  currency,
-				Unit:      int64(-diff),
-				Nano:      0,
+				Unit:      int64(-units),
+				Nano:      int32(-nano),
 			})
 			if err != nil {
 				return err

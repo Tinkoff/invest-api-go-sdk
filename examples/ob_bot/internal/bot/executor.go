@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"strings"
 	"sync"
 	"time"
 )
@@ -377,7 +378,11 @@ func (e *Executor) possibleToBuy(id string) bool {
 	var moneyInFloat float64
 	for _, pm := range positionMoney {
 		m := pm.GetAvailableValue()
-		if m.GetCurrency() == e.instruments[id].currency {
+		currentInstrument, ok := e.instruments[id]
+		if !ok {
+			e.client.Logger.Infof("%v not found in executor instruments map", id)
+		}
+		if strings.EqualFold(m.GetCurrency(), currentInstrument.currency) {
 			moneyInFloat = m.ToFloat()
 		}
 	}

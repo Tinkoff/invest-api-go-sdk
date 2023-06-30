@@ -8,18 +8,23 @@
 #### Конфигурация
 ```go
 type OrderBookStrategyConfig struct {
-	// Instruments - слайс идентификаторов инструментов
-	Instruments []string
-	// Depth - Глубина стакана
-	Depth int32
-	//  Если кол-во бид/аск больше чем BuyRatio - покупаем
-	BuyRatio float64
-	//  Если кол-во аск/бид больше чем SellRatio - продаем
-	SellRatio float64
-	// MinProfit - Минимальный процент выгоды, с которым можно совершать сделки
-	MinProfit float64
-	// SellOut - Если true, то по достижению дедлайна бот выходит из всех активных позиций
-	SellOut bool
+// Instruments - слайс идентификаторов инструментов
+Instruments []string
+// Currency - ISO-код валюты инструментов
+Currency string
+// RequiredMoneyBalance - Минимальный баланс денежных средств в Currency для начала торгов.
+// Для песочницы пополнится автоматически.
+RequiredMoneyBalance float64
+// Depth - Глубина стакана
+Depth int32
+//  Если кол-во бид/аск больше чем BuyRatio - покупаем
+BuyRatio float64
+//  Если кол-во аск/бид больше чем SellRatio - продаем
+SellRatio float64
+// MinProfit - Минимальный процент выгоды, с которым можно совершать сделки
+MinProfit float64
+// SellOut - Если true, то по достижению дедлайна бот выходит из всех активных позиций
+SellOut bool
 }
 ```
 
