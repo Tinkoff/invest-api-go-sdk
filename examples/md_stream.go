@@ -6,10 +6,12 @@ import (
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"log"
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -23,9 +25,13 @@ func main() {
 	defer cancel()
 	// сдк использует для внутреннего логирования investgo.Logger
 	// для примера передадим uber.zap
-	prod := zap.NewExample()
+	zapConfig := zap.NewDevelopmentConfig()
+	zapConfig.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
+	zapConfig.EncoderConfig.TimeKey = "time"
+	l, err := zapConfig.Build()
+	logger := l.Sugar()
 	defer func() {
-		err := prod.Sync()
+		err := logger.Sync()
 		if err != nil {
 			log.Printf("Prod.Sync %v", err.Error())
 		}
@@ -33,7 +39,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("logger creating error %v", err)
 	}
-	logger := prod.Sugar()
 	// создаем клиента для investAPI, он позволяет создавать нужные сервисы и уже
 	// через них вызывать нужные методы
 	client, err := investgo.NewClient(ctx, config, logger)
