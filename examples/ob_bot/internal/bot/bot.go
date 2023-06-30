@@ -120,14 +120,14 @@ func (b *Bot) Run() error {
 	}(b.ctx)
 
 	// данные готовы, далее идет принятие решения и возможное выставление торгового поручения
+	var strategyProfit float64
 	wg.Add(1)
 	go func(ctx context.Context) {
 		defer wg.Done()
-		profit, err := b.HandleOrderBooks(ctx, orderBooks)
+		strategyProfit, err = b.HandleOrderBooks(ctx, orderBooks)
 		if err != nil {
 			b.Client.Logger.Errorf(err.Error())
 		}
-		b.Client.Logger.Infof("profit by strategy = %.9f", profit)
 	}(b.ctx)
 
 	// Завершение работы бота по его контексту: вызов Stop() или отмена по дедлайну
@@ -136,20 +136,25 @@ func (b *Bot) Run() error {
 
 	// стримы работают на контексте клиента, завершать их нужно явно
 	stream.Stop()
-
+	// ждем пока бот завершит работу
+	wg.Wait()
+	// после этого отдельно завершаем работу исполнителя
 	// если нужно, то в конце торговой сессии выходим из всех, открытых ботом, позиций
+	var sellOutProfit float64
 	if b.StrategyConfig.SellOut {
 		b.Client.Logger.Infof("start positions sell out...")
-		err := b.executor.SellOut()
+		sellOutProfit, err = b.executor.SellOut()
 		if err != nil {
 			return err
 		}
 	}
+	b.Client.Logger.Infof("profit by strategy = %.9f", strategyProfit)
+	b.Client.Logger.Infof("profit by sell out = %.9f", sellOutProfit)
+	b.Client.Logger.Infof("total profit = %.9f", sellOutProfit+strategyProfit)
 
 	// так как исполнитель тоже слушает стримы, его нужно явно остановить
 	b.executor.Stop()
 
-	wg.Wait()
 	return nil
 }
 

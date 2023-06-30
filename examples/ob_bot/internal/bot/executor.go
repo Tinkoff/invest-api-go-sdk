@@ -389,14 +389,15 @@ func (e *Executor) possibleToBuy(id string) bool {
 	return moneyInFloat > required
 }
 
-// SellOut - Метод выхода из всех текущих позиций
-func (e *Executor) SellOut() error {
+// SellOut - Метод выхода из всех ценно-бумажных позиций
+func (e *Executor) SellOut() (float64, error) {
 	// TODO for futures and options
 	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
+	var sellOutProfit float64
 	securities := resp.GetSecurities()
 	for _, security := range securities {
 		var lot int64
@@ -420,7 +421,7 @@ func (e *Executor) SellOut() error {
 			})
 			if err != nil {
 				e.client.Logger.Errorf(investgo.MessageFromHeader(resp.GetHeader()))
-				return err
+				return 0, err
 			}
 		} else {
 			resp, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
@@ -433,9 +434,15 @@ func (e *Executor) SellOut() error {
 			})
 			if err != nil {
 				e.client.Logger.Errorf(investgo.MessageFromHeader(resp.GetHeader()))
-				return err
+				return 0, err
 			}
+			if resp.GetExecutionReportStatus() == pb.OrderExecutionReportStatus_EXECUTION_REPORT_STATUS_FILL {
+				instrument.inStock = false
+				// разница в цене инструмента * лотность * кол-во лотов
+				sellOutProfit += (resp.GetExecutedOrderPrice().ToFloat() - instrument.entryPrice) * float64(instrument.lot) * float64(instrument.quantity)
+			}
+			e.instruments[security.GetInstrumentUid()] = instrument
 		}
 	}
-	return nil
+	return sellOutProfit, nil
 }
