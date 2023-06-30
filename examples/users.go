@@ -31,7 +31,7 @@ func main() {
 	defer func() {
 		err := logger.Sync()
 		if err != nil {
-			log.Printf("Prod.Sync %v", err.Error())
+			log.Printf(err.Error())
 		}
 	}()
 	if err != nil {
