@@ -6,9 +6,11 @@ import (
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -19,6 +21,9 @@ const (
 	SHARES_NUM = 30
 	// EXCHANGE - Биржа на которой будет работать бот
 	EXCHANGE = "MOEX"
+	// CURRENCY - Бот на стакане торгует бумагами только в одной валюте. Отбор бумаг, проверка баланса, расчет профита
+	// делается в валюте CURRENCY.
+	CURRENCY = "RUB"
 )
 
 func main() {
@@ -35,17 +40,20 @@ func main() {
 	defer cancel()
 	// сдк использует для внутреннего логирования investgo.Logger
 	// для примера передадим uber.zap
-	prod := zap.NewExample()
+	zapConfig := zap.NewDevelopmentConfig()
+	zapConfig.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
+	zapConfig.EncoderConfig.TimeKey = "time"
+	l, err := zapConfig.Build()
+	logger := l.Sugar()
 	defer func() {
-		err := prod.Sync()
+		err := logger.Sync()
 		if err != nil {
-			log.Printf("Prod.Sync %v", err.Error())
+			log.Printf(err.Error())
 		}
 	}()
 	if err != nil {
 		log.Fatalf("logger creating error %v", err)
 	}
-	logger := prod.Sugar()
 	// создаем клиента для investAPI, он позволяет создавать нужные сервисы и уже
 	// через них вызывать нужные методы
 	client, err := investgo.NewClient(ctx, sdkConfig, logger)
@@ -69,30 +77,34 @@ func main() {
 		logger.Errorf(err.Error())
 	}
 	// слайс идентификаторов торговых инструментов instrument_uid
-	// акции с московской биржи
+	// рублевые акции с московской биржи
 	instrumentIds := make([]string, 0, 300)
 	shares := instrumentsResp.GetInstruments()
 	for _, share := range shares {
 		if len(instrumentIds) > SHARES_NUM-1 {
 			break
 		}
-		if share.GetExchange() == EXCHANGE {
+		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
+		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
+		if exchange && currency {
 			instrumentIds = append(instrumentIds, share.GetUid())
 		}
 	}
-	logger.Infof("got %v instruments\n", len(instrumentIds))
+	logger.Infof("got %v instruments", len(instrumentIds))
 
 	instruments := instrumentIds
 	// instruments := []string{"6afa6f80-03a7-4d83-9cf0-c19d7d021f76", "e6123145-9665-43e0-8413-cd61b8aa9b13"}
 
 	// конфиг стратегии бота на стакане
 	orderBookConfig := bot.OrderBookStrategyConfig{
-		Instruments: instruments,
-		Depth:       20,
-		BuyRatio:    2,
-		SellRatio:   2,
-		MinProfit:   0.5,
-		SellOut:     true,
+		Instruments:          instruments,
+		Currency:             CURRENCY,
+		RequiredMoneyBalance: 200000,
+		Depth:                20,
+		BuyRatio:             2,
+		SellRatio:            2,
+		MinProfit:            0.5,
+		SellOut:              true,
 	}
 
 	// создание бота на стакане
@@ -105,7 +117,7 @@ func main() {
 	// Таймер для Московской биржи, отслеживает расписание и дает сигналы, на остановку/запуск бота
 	// cancelAhead - Событие STOP будет отправлено в канал за cancelAhead до конца торгов
 	cancelAhead := time.Minute * 5
-	t := investgo.NewTimer(client, "MOEX", cancelAhead)
+	t := investgo.NewTimer(client, EXCHANGE, cancelAhead)
 
 	// запуск таймера
 	wg.Add(1)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"math"
 	"strings"
 	"sync"
 )
@@ -16,6 +17,11 @@ const QUANTITY = 1
 type OrderBookStrategyConfig struct {
 	// Instruments - слайс идентификаторов инструментов
 	Instruments []string
+	// Currency - ISO-код валюты инструментов
+	Currency string
+	// RequiredMoneyBalance - Минимальный баланс денежных средств в Currency для начала торгов.
+	// Для песочницы пополнится автоматически.
+	RequiredMoneyBalance float64
 	// Depth - Глубина стакана
 	Depth int32
 	//  Если кол-во бид/аск больше чем BuyRatio - покупаем
@@ -74,7 +80,7 @@ func NewBot(ctx context.Context, c *investgo.Client, config OrderBookStrategyCon
 func (b *Bot) Run() error {
 	wg := &sync.WaitGroup{}
 
-	err := b.checkMoneyBalance("RUB", 200000)
+	err := b.checkMoneyBalance(b.StrategyConfig.Currency, b.StrategyConfig.RequiredMoneyBalance)
 	if err != nil {
 		b.Client.Logger.Fatalf(err.Error())
 	}
@@ -120,14 +126,14 @@ func (b *Bot) Run() error {
 	}(b.ctx)
 
 	// данные готовы, далее идет принятие решения и возможное выставление торгового поручения
+	var strategyProfit float64
 	wg.Add(1)
 	go func(ctx context.Context) {
 		defer wg.Done()
-		profit, err := b.HandleOrderBooks(ctx, orderBooks)
+		strategyProfit, err = b.HandleOrderBooks(ctx, orderBooks)
 		if err != nil {
 			b.Client.Logger.Errorf(err.Error())
 		}
-		b.Client.Logger.Infof("profit by strategy = %.9f", profit)
 	}(b.ctx)
 
 	// Завершение работы бота по его контексту: вызов Stop() или отмена по дедлайну
@@ -136,20 +142,25 @@ func (b *Bot) Run() error {
 
 	// стримы работают на контексте клиента, завершать их нужно явно
 	stream.Stop()
-
+	// ждем пока бот завершит работу
+	wg.Wait()
+	// после этого отдельно завершаем работу исполнителя
 	// если нужно, то в конце торговой сессии выходим из всех, открытых ботом, позиций
+	var sellOutProfit float64
 	if b.StrategyConfig.SellOut {
 		b.Client.Logger.Infof("start positions sell out...")
-		err := b.executor.SellOut()
+		sellOutProfit, err = b.executor.SellOut()
 		if err != nil {
 			return err
 		}
 	}
+	b.Client.Logger.Infof("profit by strategy = %.9f", strategyProfit)
+	b.Client.Logger.Infof("profit by sell out = %.9f", sellOutProfit)
+	b.Client.Logger.Infof("total profit = %.9f", sellOutProfit+strategyProfit)
 
 	// так как исполнитель тоже слушает стримы, его нужно явно остановить
 	b.executor.Stop()
 
-	wg.Wait()
 	return nil
 }
 
@@ -224,12 +235,13 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 
 	if diff := balance - required; diff < 0 {
 		if strings.HasPrefix(b.Client.Config.EndPoint, "sandbox") {
+			units, nano := math.Modf(diff)
 			sandbox := b.Client.NewSandboxServiceClient()
 			resp, err := sandbox.SandboxPayIn(&investgo.SandboxPayInRequest{
 				AccountId: b.Client.Config.AccountId,
 				Currency:  currency,
-				Unit:      int64(-diff),
-				Nano:      0,
+				Unit:      int64(-units),
+				Nano:      int32(-nano),
 			})
 			if err != nil {
 				return err

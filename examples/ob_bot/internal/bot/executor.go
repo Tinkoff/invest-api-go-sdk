@@ -2,8 +2,10 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"strings"
 	"sync"
 	"time"
 )
@@ -286,7 +288,10 @@ func (e *Executor) updatePositionsUnary() error {
 
 // Buy - Метод покупки инструмента с идентификатором id
 func (e *Executor) Buy(id string) error {
-	currentInstrument := e.instruments[id]
+	currentInstrument, ok := e.instruments[id]
+	if !ok {
+		return fmt.Errorf("instrument %v not found in executor map", id)
+	}
 	// если этот инструмент уже куплен ботом
 	if currentInstrument.inStock {
 		return nil
@@ -317,7 +322,10 @@ func (e *Executor) Buy(id string) error {
 
 // Sell - Метод покупки инструмента с идентификатором id
 func (e *Executor) Sell(id string) (float64, error) {
-	currentInstrument := e.instruments[id]
+	currentInstrument, ok := e.instruments[id]
+	if !ok {
+		return 0, fmt.Errorf("instrument %v not found in executor map", id)
+	}
 	if !currentInstrument.inStock {
 		return 0, nil
 	}
@@ -370,7 +378,11 @@ func (e *Executor) possibleToBuy(id string) bool {
 	var moneyInFloat float64
 	for _, pm := range positionMoney {
 		m := pm.GetAvailableValue()
-		if m.GetCurrency() == e.instruments[id].currency {
+		currentInstrument, ok := e.instruments[id]
+		if !ok {
+			e.client.Logger.Infof("%v not found in executor instruments map", id)
+		}
+		if strings.EqualFold(m.GetCurrency(), currentInstrument.currency) {
 			moneyInFloat = m.ToFloat()
 		}
 	}
@@ -382,14 +394,15 @@ func (e *Executor) possibleToBuy(id string) bool {
 	return moneyInFloat > required
 }
 
-// SellOut - Метод выхода из всех текущих позиций
-func (e *Executor) SellOut() error {
+// SellOut - Метод выхода из всех ценно-бумажных позиций
+func (e *Executor) SellOut() (float64, error) {
 	// TODO for futures and options
 	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
+	var sellOutProfit float64
 	securities := resp.GetSecurities()
 	for _, security := range securities {
 		var lot int64
@@ -413,7 +426,7 @@ func (e *Executor) SellOut() error {
 			})
 			if err != nil {
 				e.client.Logger.Errorf(investgo.MessageFromHeader(resp.GetHeader()))
-				return err
+				return 0, err
 			}
 		} else {
 			resp, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
@@ -426,9 +439,15 @@ func (e *Executor) SellOut() error {
 			})
 			if err != nil {
 				e.client.Logger.Errorf(investgo.MessageFromHeader(resp.GetHeader()))
-				return err
+				return 0, err
 			}
+			if resp.GetExecutionReportStatus() == pb.OrderExecutionReportStatus_EXECUTION_REPORT_STATUS_FILL {
+				instrument.inStock = false
+				// разница в цене инструмента * лотность * кол-во лотов
+				sellOutProfit += (resp.GetExecutedOrderPrice().ToFloat() - instrument.entryPrice) * float64(instrument.lot) * float64(instrument.quantity)
+			}
+			e.instruments[security.GetInstrumentUid()] = instrument
 		}
 	}
-	return nil
+	return sellOutProfit, nil
 }

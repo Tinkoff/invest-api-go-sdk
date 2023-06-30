@@ -153,7 +153,7 @@ func (md *MarketDataServiceClient) GetHistoricCandles(req *GetHistoricCandlesReq
 		}
 		intervals = append(intervals, req.From)
 	} else {
-		intervals = []time.Time{req.From, req.To}
+		intervals = []time.Time{req.To, req.From}
 	}
 	// intervals = {to, ... , from}
 
