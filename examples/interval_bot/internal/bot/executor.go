@@ -125,7 +125,6 @@ func (e *Executor) BuyLimit(id string, price float64) error {
 		OrderType:    pb.OrderType_ORDER_TYPE_LIMIT,
 		OrderId:      investgo.CreateUid(),
 	})
-	// TODO обработка ошибки о недостаточном балансе
 	if err != nil {
 		return err
 	}
