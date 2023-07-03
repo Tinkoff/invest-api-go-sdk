@@ -108,10 +108,14 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 	return e
 }
 
+// BuyLimit - Выставление лимитного торгового поручения на покупку инструмента с uid = id по цене ближайшей к price
 func (e *Executor) BuyLimit(id string, price float64) error {
 	currentInstrument, ok := e.instruments[id]
 	if !ok {
 		return fmt.Errorf("instrument %v not found in executor map", id)
+	}
+	if !e.possibleToBuy(id, price) {
+		return nil
 	}
 	resp, err := e.ordersService.Buy(&investgo.PostOrderRequestShort{
 		InstrumentId: id,
@@ -132,6 +136,30 @@ func (e *Executor) BuyLimit(id string, price float64) error {
 	return nil
 }
 
+// possibleToBuy - Проверка свободного баланса денежных средств на счете, для покупки инструмента c uid = id по цене price
+func (e *Executor) possibleToBuy(id string, price float64) bool {
+	currentInstrument, ok := e.instruments[id]
+	if !ok {
+		e.client.Logger.Infof("instrument %v not found in executor map", id)
+		return false
+	}
+	required := price * float64(currentInstrument.quantity) * float64(currentInstrument.lot)
+	positionMoney := e.positions.Get().GetMoney()
+	var moneyInFloat float64
+	for _, pm := range positionMoney {
+		m := pm.GetAvailableValue()
+		if m.GetCurrency() == currentInstrument.currency {
+			moneyInFloat = m.ToFloat()
+		}
+	}
+
+	if moneyInFloat < required {
+		e.client.Logger.Infof("executor: not enough money to buy order with id = %v", id)
+	}
+	return moneyInFloat > required
+}
+
+// SellLimit - Выставление лимитного торгового поручения на продажу инструмента с uid = id по цене ближайшей к price
 func (e *Executor) SellLimit(id string, price float64) error {
 	currentInstrument, ok := e.instruments[id]
 	if !ok {
@@ -164,6 +192,7 @@ func (e *Executor) SellLimit(id string, price float64) error {
 	return nil
 }
 
+// CancelLimit - Отмена текущего лимитного поручения, если оно есть, для инструмента с uid = id
 func (e *Executor) CancelLimit(id string) error {
 	state, ok := e.instrumentsStates.Get(id)
 	if !ok {
@@ -189,6 +218,7 @@ func (e *Executor) CancelLimit(id string) error {
 	return nil
 }
 
+// ReplaceLimit - Изменение цены лимитного торгового поручения, если оно есть, для инструмента с uid = id
 func (e *Executor) ReplaceLimit(id string, price float64) error {
 	currentInstrument, ok := e.instruments[id]
 	if !ok {
@@ -409,6 +439,7 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 					switch {
 					case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_BUY:
 						is = IN_STOCK
+						// TODO add entry price
 					case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_SELL:
 						is = OUT_OF_STOCK
 					}
