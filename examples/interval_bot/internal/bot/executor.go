@@ -189,7 +189,34 @@ func (e *Executor) CancelLimit(id string) error {
 	return nil
 }
 
-func (e *Executor) ReplaceLimit() error {
+func (e *Executor) ReplaceLimit(id string, price float64) error {
+	currentInstrument, ok := e.instruments[id]
+	if !ok {
+		return fmt.Errorf("instrument %v not found in executor map", id)
+	}
+	state, ok := e.instrumentsStates.Get(id)
+	if !ok {
+		return fmt.Errorf("%v not found in instruments states", id)
+	}
+	if state.instrumentState == IN_STOCK || state.instrumentState == OUT_OF_STOCK {
+		return fmt.Errorf("invalid instrument state")
+	}
+	resp, err := e.ordersService.ReplaceOrder(&investgo.ReplaceOrderRequest{
+		AccountId:  e.client.Config.AccountId,
+		OrderId:    state.orderId,
+		NewOrderId: investgo.CreateUid(),
+		Quantity:   currentInstrument.quantity,
+		Price:      floatToQuotation(price, currentInstrument.minPriceInc),
+		PriceType:  pb.PriceType_PRICE_TYPE_CURRENCY,
+	})
+	if err != nil {
+		return err
+	}
+	// обновляем orderId в статусе инструмента
+	e.instrumentsStates.Update(id, State{
+		instrumentState: state.instrumentState,
+		orderId:         resp.GetOrderId(),
+	})
 	return nil
 }
 
