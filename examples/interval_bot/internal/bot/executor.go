@@ -176,6 +176,16 @@ func (e *Executor) CancelLimit(id string) error {
 	if err != nil {
 		return err
 	}
+	var newState InstrumentState
+	switch state.instrumentState {
+	case TRY_TO_SELL:
+		newState = IN_STOCK
+	case TRY_TO_BUY:
+		newState = OUT_OF_STOCK
+	}
+	e.instrumentsStates.Update(id, State{
+		instrumentState: newState,
+	})
 	return nil
 }
 
