@@ -13,8 +13,51 @@ import (
 type InstrumentState int
 
 const (
-	INSTRUMENT_IN_STOCK InstrumentState = iota
+	// OUT_OF_STOCK - Нет открытых позиций по этому инструменту
+	OUT_OF_STOCK InstrumentState = iota
+	// IN_STOCK - Есть открытая позиция по этому инструменту
+	IN_STOCK
+	// TRY_TO_BUY - Выставлена лимитная заявка на покупку этого инструмента
+	TRY_TO_BUY
+	// TRY_TO_SELL - Выставлена лимитная заявка на продажу этого инструмента
+	TRY_TO_SELL
 )
+
+// State - Текущее состояние торгового инструмента
+type State struct {
+	// instrumentState - Текущее состояние торгового инструмента
+	instrumentState InstrumentState
+	// orderId - Идентификатор выставленного биржевого поручения. Используется только при
+	// state = TRY_TO_BUY или TRY_TO_SELL
+	orderId string
+}
+
+// States - Состояния инструментов, с которыми работает исполнитель
+type States struct {
+	mx sync.Mutex
+	s  map[string]State
+}
+
+func NewStates() *States {
+	return &States{
+		s: make(map[string]State, 0),
+	}
+}
+
+// Update - Обновление состояния инструмента
+func (s *States) Update(id string, st State) {
+	s.mx.Lock()
+	s.s[id] = st
+	s.mx.Unlock()
+}
+
+// Get - Получение состояния инструмента
+func (s *States) Get(id string) (State, bool) {
+	s.mx.Lock()
+	defer s.mx.Unlock()
+	state, ok := s.s[id]
+	return state, ok
+}
 
 type Instrument struct {
 	// quantity - Количество лотов, которое покупает/продает исполнитель за 1 поручение
@@ -23,12 +66,8 @@ type Instrument struct {
 	lot int32
 	// currency - Код валюты инструмента
 	currency string
-	// inStock - Флаг открытой позиции по инструменту, если true - позиция открыта
-	inStock bool
-
-	state InstrumentState
-
-	priceStep float64
+	// minPriceInc - Минимальный шаг цены
+	minPriceInc *pb.Quotation
 	// entryPrice - После открытия позиции, сохраняется цена этой сделки
 	entryPrice float64
 }
@@ -37,27 +76,27 @@ type Instrument struct {
 type Executor struct {
 	// instruments - Инструменты, которыми торгует исполнитель
 	instruments map[string]Instrument
-	// minProfit - Процент профита, с которым выставляются лимитные заявки
-	profit float64
 
 	wg     *sync.WaitGroup
 	cancel context.CancelFunc
 
 	// lastPrices - Текущие позиции на счете, обновляются через стрим сервиса операций
-	positions *Positions
+	positions         *Positions
+	instrumentsStates *States
 
 	client            *investgo.Client
 	ordersService     *investgo.OrdersServiceClient
 	operationsService *investgo.OperationsServiceClient
 }
 
-func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrument, minProfit float64) *Executor {
+func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrument) *Executor {
 	ctxExecutor, cancel := context.WithCancel(ctx)
 	wg := &sync.WaitGroup{}
 
 	e := &Executor{
 		instruments:       ids,
 		positions:         NewPositions(),
+		instrumentsStates: NewStates(),
 		wg:                wg,
 		cancel:            cancel,
 		client:            c,
@@ -76,16 +115,20 @@ func (e *Executor) BuyLimit(id string, price float64) error {
 	}
 	resp, err := e.ordersService.Buy(&investgo.PostOrderRequestShort{
 		InstrumentId: id,
-		Quantity:     0,
-		Price:        floatToQuotation(price, currentInstrument.priceStep),
+		Quantity:     currentInstrument.quantity,
+		Price:        floatToQuotation(price, currentInstrument.minPriceInc),
 		AccountId:    e.client.Config.AccountId,
 		OrderType:    pb.OrderType_ORDER_TYPE_LIMIT,
 		OrderId:      investgo.CreateUid(),
 	})
+	// TODO обработка ошибки о недостаточном балансе
 	if err != nil {
 		return err
 	}
-	resp.GetOrderId()
+	e.instrumentsStates.Update(id, State{
+		instrumentState: TRY_TO_BUY,
+		orderId:         resp.GetOrderId(),
+	})
 	return nil
 }
 
@@ -93,24 +136,25 @@ func (e *Executor) SellLimit(id string, price float64) error {
 	return nil
 }
 
-// floatToQuotation - Перевод float в Quotation. Если шаг цены либо < 1, либо целый. Округление вниз
-func floatToQuotation(number float64, step float64) *pb.Quotation {
-	if step < 1 {
-		units, frac := math.Modf(number)
-		intPres := int64(step * math.Pow(10, 9))
+func (e *Executor) CancelLimit() error {
+	return nil
+}
 
-		intFract := int64(frac * math.Pow(10, 9))
-		k := intFract / intPres
-		return &pb.Quotation{
-			Units: int64(units),
-			Nano:  int32(k * intPres),
-		}
-	} else {
-		k := int64(number) / int64(step)
-		return &pb.Quotation{
-			Units: k * int64(step),
-			Nano:  0,
-		}
+func (e *Executor) ReplaceLimit() error {
+	return nil
+}
+
+// floatToQuotation - Перевод float в Quotation
+func floatToQuotation(number float64, step *pb.Quotation) *pb.Quotation {
+	// делим дробь на дробь и округляем до ближайшего целого
+	k := math.Round(number / step.ToFloat())
+	// целое умножаем на дробный шаг и получаем готовое дробное значение
+	roundedNumber := step.ToFloat() * k
+	// разделяем дробную и целую части
+	unit, nano := math.Modf(roundedNumber)
+	return &pb.Quotation{
+		Units: int64(unit),
+		Nano:  int32(nano * math.Pow(10, 9)),
 	}
 }
 
@@ -140,12 +184,21 @@ func (p *Positions) Get() *pb.PositionData {
 	return p.pd
 }
 
-// start - Запуск чтения стримов позиций и последних цен
+// start - Запуск чтения стримов позиций и сделок
 func (e *Executor) start(ctx context.Context) {
 	e.wg.Add(1)
 	go func(ctx context.Context) {
 		defer e.wg.Done()
 		err := e.listenPositions(ctx)
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}(ctx)
+
+	e.wg.Add(1)
+	go func(ctx context.Context) {
+		defer e.wg.Done()
+		err := e.listenTrades(ctx)
 		if err != nil {
 			e.client.Logger.Errorf(err.Error())
 		}
@@ -241,5 +294,57 @@ func (e *Executor) updatePositionsUnary() error {
 		Date:       investgo.TimeToTimestamp(time.Now()),
 	})
 
+	return nil
+}
+
+// listenTrades - Метод слушает стрим сделок и обновляет состояние инструмента
+func (e *Executor) listenTrades(ctx context.Context) error {
+	ordersStreamClient := e.client.NewOrdersStreamClient()
+	stream, err := ordersStreamClient.TradesStream([]string{e.client.Config.AccountId})
+	if err != nil {
+		return err
+	}
+
+	trades := stream.Trades()
+
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		err := stream.Listen()
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}()
+
+	e.wg.Add(1)
+	go func(ctx context.Context) {
+		defer e.wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case t, ok := <-trades:
+				if !ok {
+					return
+				}
+				// обновление статуса инструмента после исполнения лимитной заявки
+				var is InstrumentState
+				if t.GetAccountId() == e.client.Config.AccountId {
+					switch {
+					case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_BUY:
+						is = IN_STOCK
+					case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_SELL:
+						is = OUT_OF_STOCK
+					}
+				}
+				uid := t.GetInstrumentUid()
+				e.instrumentsStates.Update(uid, State{instrumentState: is})
+			}
+		}
+	}(ctx)
+
+	<-ctx.Done()
+	e.client.Logger.Infof("stop listening trades in executor")
+	stream.Stop()
 	return nil
 }
