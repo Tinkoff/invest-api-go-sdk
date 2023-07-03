@@ -133,10 +133,49 @@ func (e *Executor) BuyLimit(id string, price float64) error {
 }
 
 func (e *Executor) SellLimit(id string, price float64) error {
+	currentInstrument, ok := e.instruments[id]
+	if !ok {
+		return fmt.Errorf("instrument %v not found in executor map", id)
+	}
+	st, ok := e.instrumentsStates.Get(id)
+	if !ok {
+		e.client.Logger.Infof("%v not found in instrumentStates", id)
+		return nil
+	}
+	if st.instrumentState != IN_STOCK {
+		e.client.Logger.Infof("sell limit fail %v not in stock", id)
+		return nil
+	}
+	resp, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
+		InstrumentId: id,
+		Quantity:     currentInstrument.quantity,
+		Price:        floatToQuotation(price, currentInstrument.minPriceInc),
+		AccountId:    e.client.Config.AccountId,
+		OrderType:    pb.OrderType_ORDER_TYPE_LIMIT,
+		OrderId:      investgo.CreateUid(),
+	})
+	if err != nil {
+		return err
+	}
+	e.instrumentsStates.Update(id, State{
+		instrumentState: TRY_TO_SELL,
+		orderId:         resp.GetOrderId(),
+	})
 	return nil
 }
 
-func (e *Executor) CancelLimit() error {
+func (e *Executor) CancelLimit(id string) error {
+	state, ok := e.instrumentsStates.Get(id)
+	if !ok {
+		return fmt.Errorf("%v not found in instruments states", id)
+	}
+	if state.instrumentState == IN_STOCK || state.instrumentState == OUT_OF_STOCK {
+		return fmt.Errorf("invalid instrument state")
+	}
+	_, err := e.ordersService.CancelOrder(e.client.Config.AccountId, state.orderId)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
