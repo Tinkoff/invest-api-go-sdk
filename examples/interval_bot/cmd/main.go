@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -16,9 +17,11 @@ import (
 
 const (
 	// SHARES_NUM - Количество акций для торгов
-	SHARES_NUM = 30
+	SHARES_NUM = 300
 	// EXCHANGE - Биржа на которой будет работать бот
 	EXCHANGE = "MOEX"
+	CURRENCY = "RUB"
+	QUANTITY = 1
 )
 
 func main() {
@@ -76,14 +79,21 @@ func main() {
 		if len(instrumentIds) > SHARES_NUM-1 {
 			break
 		}
-		if share.GetExchange() == EXCHANGE {
+		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
+		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
+		if exchange && currency {
 			instrumentIds = append(instrumentIds, share.GetUid())
 		}
 	}
 	logger.Infof("got %v instruments\n", len(instrumentIds))
 
-	intervalConfig := bot.IntervalStrategyConfig{}
-	// создание бота на стакане
+	intervalConfig := bot.IntervalStrategyConfig{
+		Instruments: instrumentIds,
+		Quantity:    QUANTITY,
+		MinProfit:   0.5,
+		SellOut:     true,
+	}
+	// создание интервального бота
 	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)
 	if err != nil {
 		logger.Fatalf("interval bot creating fail %v", err.Error())
