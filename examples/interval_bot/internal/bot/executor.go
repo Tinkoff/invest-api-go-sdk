@@ -108,6 +108,13 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 	return e
 }
 
+// Stop - Завершение работы
+func (e *Executor) Stop() {
+	e.cancel()
+	e.wg.Wait()
+	e.client.Logger.Infof("executor stopped")
+}
+
 // BuyLimit - Выставление лимитного торгового поручения на покупку инструмента с uid = id по цене ближайшей к price
 func (e *Executor) BuyLimit(id string, price float64) error {
 	currentInstrument, ok := e.instruments[id]
