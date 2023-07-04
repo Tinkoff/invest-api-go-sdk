@@ -461,3 +461,54 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 	stream.Stop()
 	return nil
 }
+
+// SellOut - Метод выхода из всех текущих позиций
+func (e *Executor) SellOut() error {
+	// TODO for futures and options
+	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
+	if err != nil {
+		return err
+	}
+
+	securities := resp.GetSecurities()
+	for _, security := range securities {
+		var lot int64
+		instrument, ok := e.instruments[security.GetInstrumentUid()]
+		if !ok {
+			// если бот не открывал эту позицию, он не будет ее закрывать
+			e.client.Logger.Infof("%v not found in executor instruments map", security.GetInstrumentUid())
+			continue
+		} else {
+			lot = int64(instrument.lot)
+		}
+		balanceInLots := security.GetBalance() / lot
+		if balanceInLots < 0 {
+			resp, err := e.ordersService.Buy(&investgo.PostOrderRequestShort{
+				InstrumentId: security.GetInstrumentUid(),
+				Quantity:     -balanceInLots,
+				Price:        nil,
+				AccountId:    e.client.Config.AccountId,
+				OrderType:    pb.OrderType_ORDER_TYPE_MARKET,
+				OrderId:      investgo.CreateUid(),
+			})
+			if err != nil {
+				e.client.Logger.Errorf(investgo.MessageFromHeader(resp.GetHeader()))
+				return err
+			}
+		} else {
+			resp, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
+				InstrumentId: security.GetInstrumentUid(),
+				Quantity:     balanceInLots,
+				Price:        nil,
+				AccountId:    e.client.Config.AccountId,
+				OrderType:    pb.OrderType_ORDER_TYPE_MARKET,
+				OrderId:      investgo.CreateUid(),
+			})
+			if err != nil {
+				e.client.Logger.Errorf(investgo.MessageFromHeader(resp.GetHeader()))
+				return err
+			}
+		}
+	}
+	return nil
+}
