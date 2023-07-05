@@ -6,6 +6,7 @@ import (
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"log"
 	"os"
 	"os/signal"
@@ -38,17 +39,20 @@ func main() {
 	defer cancel()
 	// сдк использует для внутреннего логирования investgo.Logger
 	// для примера передадим uber.zap
-	prod := zap.NewExample()
+	zapConfig := zap.NewDevelopmentConfig()
+	zapConfig.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
+	zapConfig.EncoderConfig.TimeKey = "time"
+	l, err := zapConfig.Build()
+	logger := l.Sugar()
 	defer func() {
-		err := prod.Sync()
+		err := logger.Sync()
 		if err != nil {
-			log.Printf("Prod.Sync %v", err.Error())
+			log.Printf(err.Error())
 		}
 	}()
 	if err != nil {
 		log.Fatalf("logger creating error %v", err)
 	}
-	logger := prod.Sugar()
 	// создаем клиента для investAPI, он позволяет создавать нужные сервисы и уже
 	// через них вызывать нужные методы
 	client, err := investgo.NewClient(ctx, sdkConfig, logger)
@@ -88,10 +92,11 @@ func main() {
 	logger.Infof("got %v instruments\n", len(instrumentIds))
 
 	intervalConfig := bot.IntervalStrategyConfig{
-		Instruments: instrumentIds,
-		Quantity:    QUANTITY,
-		MinProfit:   0.5,
-		SellOut:     true,
+		Instruments:         instrumentIds,
+		Quantity:            QUANTITY,
+		MinProfit:           0.5,
+		SellOut:             true,
+		IntervalUpdateDelay: time.Minute * 5,
 	}
 	// создание интервального бота
 	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)
