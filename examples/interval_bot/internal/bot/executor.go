@@ -72,17 +72,43 @@ type Instrument struct {
 	entryPrice float64
 }
 
+type intervals struct {
+	mx sync.Mutex
+	i  map[string]interval
+}
+
+func newIntervals(i map[string]interval) *intervals {
+	return &intervals{
+		i: i,
+	}
+}
+
+func (i *intervals) update(id string, inter interval) {
+	i.mx.Lock()
+	i.i[id] = inter
+	i.mx.Unlock()
+}
+
+func (i *intervals) get(id string) (interval, bool) {
+	i.mx.Lock()
+	defer i.mx.Unlock()
+	inter, ok := i.i[id]
+	return inter, ok
+}
+
 // Executor - Вызывается ботом и исполняет торговые поручения
 type Executor struct {
 	// instruments - Инструменты, которыми торгует исполнитель
 	instruments map[string]Instrument
 
 	wg     *sync.WaitGroup
+	ctx    context.Context
 	cancel context.CancelFunc
 
 	// lastPrices - Текущие позиции на счете, обновляются через стрим сервиса операций
 	positions         *Positions
 	instrumentsStates *States
+	intervals         *intervals
 
 	client            *investgo.Client
 	ordersService     *investgo.OrdersServiceClient
@@ -98,13 +124,12 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 		positions:         NewPositions(),
 		instrumentsStates: NewStates(),
 		wg:                wg,
+		ctx:               ctxExecutor,
 		cancel:            cancel,
 		client:            c,
 		ordersService:     c.NewOrdersServiceClient(),
 		operationsService: c.NewOperationsServiceClient(),
 	}
-	// Сразу запускаем исполнителя из его же конструктора
-	e.start(ctxExecutor)
 	return e
 }
 
@@ -296,8 +321,9 @@ func (p *Positions) Get() *pb.PositionData {
 	return p.pd
 }
 
-// start - Запуск чтения стримов позиций и сделок
-func (e *Executor) start(ctx context.Context) {
+// Start - Запуск чтения стримов позиций и сделок
+func (e *Executor) Start(i map[string]interval) {
+	// обновление позиций
 	e.wg.Add(1)
 	go func(ctx context.Context) {
 		defer e.wg.Done()
@@ -305,8 +331,9 @@ func (e *Executor) start(ctx context.Context) {
 		if err != nil {
 			e.client.Logger.Errorf(err.Error())
 		}
-	}(ctx)
+	}(e.ctx)
 
+	// отслеживание исполнения сделок
 	e.wg.Add(1)
 	go func(ctx context.Context) {
 		defer e.wg.Done()
@@ -314,7 +341,22 @@ func (e *Executor) start(ctx context.Context) {
 		if err != nil {
 			e.client.Logger.Errorf(err.Error())
 		}
-	}(ctx)
+	}(e.ctx)
+
+	// начальные значения интервалов цен
+	e.intervals = newIntervals(i)
+
+	// выставляем заявки на покупку и далее отслеживаем статусы инструментов и выставляем заявки
+	for id, interval := range e.intervals.i {
+		err := e.BuyLimit(id, interval.low)
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}
+}
+
+func (e *Executor) UpdateInterval(id string, i interval) {
+	// обновить интервал и перевыставить поручение если нужно
 }
 
 // listenPositions - Метод слушает стрим позиций и обновляет их
@@ -452,6 +494,24 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 				}
 				uid := t.GetInstrumentUid()
 				e.instrumentsStates.Update(uid, State{instrumentState: is})
+				// как только купили выставляем заявку на продажу и наоборот
+				price, ok := e.intervals.get(uid)
+				if !ok {
+					e.client.Logger.Errorf("%v not found in intervals", uid)
+					return
+				}
+				switch is {
+				case IN_STOCK:
+					err := e.SellLimit(uid, price.high)
+					if err != nil {
+						e.client.Logger.Errorf(err.Error())
+					}
+				case OUT_OF_STOCK:
+					err := e.BuyLimit(uid, price.low)
+					if err != nil {
+						e.client.Logger.Errorf(err.Error())
+					}
+				}
 			}
 		}
 	}(ctx)
