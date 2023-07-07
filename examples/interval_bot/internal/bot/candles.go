@@ -68,38 +68,39 @@ func (c *CandlesStorage) Candles(id string) ([]*pb.HistoricCandle, error) {
 }
 
 // UpdateCandlesHistory - Загрузить от времени последнего обновления до сейчас
-func (c *CandlesStorage) UpdateCandlesHistory() error {
-	for id, candles := range c.candles {
-		now := time.Now()
-		newCandles, err := c.mds.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
-			Instrument: id,
-			Interval:   candles.CandleInterval(),
-			From:       candles.LastUpdate(),
-			To:         now,
-			File:       false,
-			FileName:   "",
-		})
-		if err != nil {
-			return err
-		}
-		err = candles.AppendHistoricCandle(newCandles)
-		if err != nil {
-			return err
-		}
-		candles.lastUpdate = now
+func (c *CandlesStorage) UpdateCandlesHistory(id string) error {
+	candles, ok := c.candles[id]
+	if !ok {
+		return fmt.Errorf("%v not found in candles storage", id)
 	}
+	now := time.Now()
+	newCandles, err := c.mds.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
+		Instrument: id,
+		Interval:   candles.CandleInterval(),
+		From:       candles.LastUpdate(),
+		To:         now,
+		File:       false,
+		FileName:   "",
+	})
+	if err != nil {
+		return err
+	}
+	err = candles.AppendHistoricCandle(newCandles)
+	if err != nil {
+		return err
+	}
+	candles.lastUpdate = now
 	return nil
 }
 
 // LoadCandlesHistory - Начальная загрузка истории свечей
-func (c *CandlesStorage) LoadCandlesHistory(ids []string, i pb.CandleInterval, from time.Time) error {
+func (c *CandlesStorage) LoadCandlesHistory(ids []string, i pb.CandleInterval, from, to time.Time) error {
 	for _, instrument := range ids {
-		now := time.Now()
 		candles, err := c.mds.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
 			Instrument: instrument,
 			Interval:   i,
 			From:       from,
-			To:         now,
+			To:         to,
 			File:       false,
 			FileName:   "",
 		})
@@ -108,7 +109,7 @@ func (c *CandlesStorage) LoadCandlesHistory(ids []string, i pb.CandleInterval, f
 		}
 		c.candles[instrument] = &Candles{
 			hc:             candles,
-			lastUpdate:     now,
+			lastUpdate:     to,
 			candleInterval: i,
 		}
 	}
