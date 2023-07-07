@@ -105,7 +105,6 @@ type Executor struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// lastPrices - Текущие позиции на счете, обновляются через стрим сервиса операций
 	positions         *Positions
 	instrumentsStates *States
 	intervals         *intervals
@@ -131,6 +130,40 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 		operationsService: c.NewOperationsServiceClient(),
 	}
 	return e
+}
+
+// Start - Запуск отслеживания инструментов и непрерывное выставление лимитных заявок по интервалам
+func (e *Executor) Start(i map[string]interval) {
+	// обновление позиций
+	e.wg.Add(1)
+	go func(ctx context.Context) {
+		defer e.wg.Done()
+		err := e.listenPositions(ctx)
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}(e.ctx)
+
+	// отслеживание исполнения сделок
+	e.wg.Add(1)
+	go func(ctx context.Context) {
+		defer e.wg.Done()
+		err := e.listenTrades(ctx)
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}(e.ctx)
+
+	// начальные значения интервалов цен
+	e.intervals = newIntervals(i)
+
+	// выставляем заявки на покупку и далее отслеживаем статусы инструментов и выставляем заявки
+	for id, interval := range e.intervals.i {
+		err := e.BuyLimit(id, interval.low)
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}
 }
 
 // Stop - Завершение работы
@@ -321,42 +354,38 @@ func (p *Positions) Get() *pb.PositionData {
 	return p.pd
 }
 
-// Start - Запуск чтения стримов позиций и сделок
-func (e *Executor) Start(i map[string]interval) {
-	// обновление позиций
-	e.wg.Add(1)
-	go func(ctx context.Context) {
-		defer e.wg.Done()
-		err := e.listenPositions(ctx)
-		if err != nil {
-			e.client.Logger.Errorf(err.Error())
+// UpdateInterval - Обновление интервала для инструмента и замена заявки, если понадобится
+func (e *Executor) UpdateInterval(id string, i interval) error {
+	oldInterval, ok := e.intervals.get(id)
+	if !ok {
+		return fmt.Errorf("%v interval not found\n", id)
+	}
+	// обновляем интервал для инструмента
+	e.intervals.update(id, i)
+	state, ok := e.instrumentsStates.Get(id)
+	if !ok {
+		return fmt.Errorf("%v state not found\n", id)
+	}
+	// Если цена в интервале изменилась, заменяем лимитную заявку
+	switch state.instrumentState {
+	case TRY_TO_SELL:
+		if i.high == oldInterval.high {
+			return nil
 		}
-	}(e.ctx)
-
-	// отслеживание исполнения сделок
-	e.wg.Add(1)
-	go func(ctx context.Context) {
-		defer e.wg.Done()
-		err := e.listenTrades(ctx)
+		err := e.ReplaceLimit(id, i.high)
 		if err != nil {
-			e.client.Logger.Errorf(err.Error())
+			return err
 		}
-	}(e.ctx)
-
-	// начальные значения интервалов цен
-	e.intervals = newIntervals(i)
-
-	// выставляем заявки на покупку и далее отслеживаем статусы инструментов и выставляем заявки
-	for id, interval := range e.intervals.i {
-		err := e.BuyLimit(id, interval.low)
+	case TRY_TO_BUY:
+		if i.low == oldInterval.low {
+			return nil
+		}
+		err := e.ReplaceLimit(id, i.low)
 		if err != nil {
-			e.client.Logger.Errorf(err.Error())
+			return err
 		}
 	}
-}
-
-func (e *Executor) UpdateInterval(id string, i interval) {
-	// обновить интервал и перевыставить поручение если нужно
+	return nil
 }
 
 // listenPositions - Метод слушает стрим позиций и обновляет их
@@ -451,7 +480,8 @@ func (e *Executor) updatePositionsUnary() error {
 	return nil
 }
 
-// listenTrades - Метод слушает стрим сделок и обновляет состояние инструмента
+// listenTrades - Метод слушает стрим сделок, обновляет состояния инструментов. Если лимитная заявка на покупку исполнилась,
+// тут же выставляется лимитная заявка на продажу, и наоборот.
 func (e *Executor) listenTrades(ctx context.Context) error {
 	ordersStreamClient := e.client.NewOrdersStreamClient()
 	stream, err := ordersStreamClient.TradesStream([]string{e.client.Config.AccountId})
@@ -493,6 +523,7 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 					}
 				}
 				uid := t.GetInstrumentUid()
+				// обновляем состояние инструмента
 				e.instrumentsStates.Update(uid, State{instrumentState: is})
 				// как только купили выставляем заявку на продажу и наоборот
 				price, ok := e.intervals.get(uid)
