@@ -92,11 +92,12 @@ func main() {
 	logger.Infof("got %v instruments\n", len(instrumentIds))
 
 	intervalConfig := bot.IntervalStrategyConfig{
-		Instruments:         instrumentIds,
-		Quantity:            QUANTITY,
-		MinProfit:           0.5,
-		SellOut:             true,
-		IntervalUpdateDelay: time.Minute * 5,
+		Instruments:            instrumentIds,
+		Quantity:               QUANTITY,
+		MinProfit:              0.5,
+		SellOut:                true,
+		IntervalUpdateDelay:    time.Minute * 5,
+		TopInstrumentsQuantity: 15,
 	}
 	// создание интервального бота
 	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)
