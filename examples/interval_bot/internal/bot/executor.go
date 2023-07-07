@@ -6,6 +6,7 @@ import (
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"math"
+	"strings"
 	"sync"
 	"time"
 )
@@ -129,11 +130,7 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 		ordersService:     c.NewOrdersServiceClient(),
 		operationsService: c.NewOperationsServiceClient(),
 	}
-	return e
-}
 
-// Start - Запуск отслеживания инструментов и непрерывное выставление лимитных заявок по интервалам
-func (e *Executor) Start(i map[string]interval) {
 	// обновление позиций
 	e.wg.Add(1)
 	go func(ctx context.Context) {
@@ -154,6 +151,11 @@ func (e *Executor) Start(i map[string]interval) {
 		}
 	}(e.ctx)
 
+	return e
+}
+
+// Start - Запуск отслеживания инструментов и непрерывное выставление лимитных заявок по интервалам
+func (e *Executor) Start(i map[string]interval) {
 	// начальные значения интервалов цен
 	e.intervals = newIntervals(i)
 
@@ -214,11 +216,12 @@ func (e *Executor) possibleToBuy(id string, price float64) bool {
 	var moneyInFloat float64
 	for _, pm := range positionMoney {
 		m := pm.GetAvailableValue()
-		if m.GetCurrency() == currentInstrument.currency {
+		if strings.EqualFold(m.GetCurrency(), currentInstrument.currency) {
 			moneyInFloat = m.ToFloat()
 		}
 	}
 
+	fmt.Println(moneyInFloat)
 	if moneyInFloat < required {
 		e.client.Logger.Infof("executor: not enough money to buy order with id = %v", id)
 	}
@@ -316,6 +319,7 @@ func (e *Executor) ReplaceLimit(id string, price float64) error {
 		instrumentState: state.instrumentState,
 		orderId:         resp.GetOrderId(),
 	})
+	e.client.Logger.Infof("replace limit order, instrument uid = %v", id)
 	return nil
 }
 
@@ -378,7 +382,9 @@ func (e *Executor) UpdateInterval(id string, i interval) error {
 	// Если цена в интервале изменилась, заменяем лимитную заявку
 	switch state.instrumentState {
 	case TRY_TO_SELL:
-		if floatToQuotation(i.high, currentInstrument.minPriceInc) == floatToQuotation(oldInterval.high, currentInstrument.minPriceInc) {
+		p1 := floatToQuotation(i.high, currentInstrument.minPriceInc)
+		p2 := floatToQuotation(oldInterval.high, currentInstrument.minPriceInc)
+		if p1.GetUnits() == p2.GetUnits() && p1.GetNano() == p2.GetNano() {
 			return nil
 		}
 		err := e.ReplaceLimit(id, i.high)
@@ -386,7 +392,9 @@ func (e *Executor) UpdateInterval(id string, i interval) error {
 			return err
 		}
 	case TRY_TO_BUY:
-		if floatToQuotation(i.low, currentInstrument.minPriceInc) == floatToQuotation(oldInterval.low, currentInstrument.minPriceInc) {
+		p1 := floatToQuotation(i.low, currentInstrument.minPriceInc)
+		p2 := floatToQuotation(oldInterval.low, currentInstrument.minPriceInc)
+		if p1.GetUnits() == p2.GetUnits() && p1.GetNano() == p2.GetNano() {
 			return nil
 		}
 		err := e.ReplaceLimit(id, i.low)
