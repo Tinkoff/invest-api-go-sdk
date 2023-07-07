@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"fmt"
+	"github.com/shopspring/decimal"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"math"
@@ -330,10 +331,17 @@ func floatToQuotation(number float64, step *pb.Quotation) *pb.Quotation {
 	// целое умножаем на дробный шаг и получаем готовое дробное значение
 	roundedNumber := step.ToFloat() * k
 	// разделяем дробную и целую части
-	unit, nano := math.Modf(roundedNumber)
+
+	decNumber := decimal.NewFromFloat(roundedNumber)
+
+	intPart := decNumber.IntPart()
+	fracPart := decNumber.Sub(decimal.NewFromInt(intPart))
+
+	nano := fracPart.Mul(decimal.NewFromInt(1000000000)).IntPart()
+
 	return &pb.Quotation{
-		Units: int64(unit),
-		Nano:  int32(nano * math.Pow(10, 9)),
+		Units: intPart,
+		Nano:  int32(nano),
 	}
 }
 

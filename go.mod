@@ -9,6 +9,7 @@ require (
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/montanaflynn/stats v0.7.1
+	github.com/shopspring/decimal v1.3.1
 	github.com/stretchr/testify v1.8.0
 	go.uber.org/zap v1.24.0
 	golang.org/x/net v0.8.0
