@@ -197,6 +197,8 @@ func (e *Executor) BuyLimit(id string, price float64) error {
 		instrumentState: TRY_TO_BUY,
 		orderId:         resp.GetOrderId(),
 	})
+	e.client.Logger.Infof("post buy limit order, figi = %v price = %v", resp.GetFigi(),
+		floatToQuotation(price, currentInstrument.minPriceInc).ToFloat())
 	return nil
 }
 
@@ -253,6 +255,8 @@ func (e *Executor) SellLimit(id string, price float64) error {
 		instrumentState: TRY_TO_SELL,
 		orderId:         resp.GetOrderId(),
 	})
+	e.client.Logger.Infof("post sell limit order, figi = %v price = %v", resp.GetFigi(),
+		floatToQuotation(price, currentInstrument.minPriceInc).ToFloat())
 	return nil
 }
 
@@ -279,6 +283,7 @@ func (e *Executor) CancelLimit(id string) error {
 	e.instrumentsStates.Update(id, State{
 		instrumentState: newState,
 	})
+	e.client.Logger.Infof("cancel limit order, instrument uid = %v", id)
 	return nil
 }
 
@@ -366,10 +371,14 @@ func (e *Executor) UpdateInterval(id string, i interval) error {
 	if !ok {
 		return fmt.Errorf("%v state not found\n", id)
 	}
+	currentInstrument, ok := e.instruments[id]
+	if !ok {
+		return fmt.Errorf("%v instrument not found\n", id)
+	}
 	// Если цена в интервале изменилась, заменяем лимитную заявку
 	switch state.instrumentState {
 	case TRY_TO_SELL:
-		if i.high == oldInterval.high {
+		if floatToQuotation(i.high, currentInstrument.minPriceInc) == floatToQuotation(oldInterval.high, currentInstrument.minPriceInc) {
 			return nil
 		}
 		err := e.ReplaceLimit(id, i.high)
@@ -377,7 +386,7 @@ func (e *Executor) UpdateInterval(id string, i interval) error {
 			return err
 		}
 	case TRY_TO_BUY:
-		if i.low == oldInterval.low {
+		if floatToQuotation(i.low, currentInstrument.minPriceInc) == floatToQuotation(oldInterval.low, currentInstrument.minPriceInc) {
 			return nil
 		}
 		err := e.ReplaceLimit(id, i.low)
