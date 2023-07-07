@@ -556,6 +556,16 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 // SellOut - Метод выхода из всех текущих позиций
 func (e *Executor) SellOut() error {
 	// TODO for futures and options
+	// отменяем все лимитные поручения
+	for id, state := range e.instrumentsStates.s {
+		if state.instrumentState == TRY_TO_SELL || state.instrumentState == TRY_TO_BUY {
+			err := e.CancelLimit(id)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	// продаем бумаги, которые в наличии
 	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
 	if err != nil {
 		return err
