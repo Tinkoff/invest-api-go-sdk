@@ -8,6 +8,7 @@ import (
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"math"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +21,16 @@ type IntervalStrategyConfig struct {
 	Quantity int64
 	// MinProfit - Минимальный процент выгоды, с которым можно совершать сделки
 	MinProfit float64
+	// IntervalUpdateDelay - Время ожидания для перерасчета интервала цены
+	IntervalUpdateDelay time.Duration
+	// TopInstrumentsQuantity - Топ лучших инструментов по волатильности
+	TopInstrumentsQuantity int
 	// SellOut - Если true, то по достижению дедлайна бот выходит из всех активных позиций
 	SellOut bool
 }
 
 type interval struct {
-	high, low *pb.Quotation
+	high, low float64
 }
 
 type Bot struct {
@@ -36,8 +41,6 @@ type Bot struct {
 	cancelBot context.CancelFunc
 
 	executor *Executor
-
-	intervals map[string]interval
 }
 
 func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrategyConfig) (*Bot, error) {
@@ -69,37 +72,103 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 		ctx:            botCtx,
 		cancelBot:      cancel,
 		executor:       NewExecutor(ctx, client, instruments),
-		intervals:      make(map[string]interval, len(instruments)),
 	}, nil
 }
 
 func (b *Bot) Run() error {
 	wg := &sync.WaitGroup{}
 
+	// проверяем баланс денежных средств на счете
 	err := b.checkMoneyBalance("RUB", 200000)
 	if err != nil {
 		b.Client.Logger.Fatalf(err.Error())
 	}
-	candles := make(map[string][]*pb.HistoricCandle, len(b.StrategyConfig.Instruments))
-
+	// создаем хранилище исторических свечей
 	marketDataService := b.Client.NewMarketDataServiceClient()
-	for _, instrument := range b.StrategyConfig.Instruments {
-		c, err := marketDataService.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
-			Instrument: instrument,
-			Interval:   pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
-			From:       time.Now().Add(-1 * 96 * time.Hour),
-			To:         time.Now(),
-			File:       false,
-			FileName:   "",
-		})
+	candles := NewCandlesStorage(marketDataService)
+
+	// загружаем минутные свечи по всем инструментам для анализа волатильности
+	err = candles.LoadCandlesHistory(b.StrategyConfig.Instruments, pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
+		time.Now().Add(-1*24*time.Hour), time.Now())
+	if err != nil {
+		return err
+	}
+
+	// отбор топ инструментов по волатильности
+
+	// результаты анализа
+	analyseResult := make([]*analyseResponse, 0, len(b.StrategyConfig.Instruments))
+
+	// запуск анализа инструментов по их историческим свечам
+	for _, id := range b.StrategyConfig.Instruments {
+		tempId := id
+		hc, err := candles.Candles(tempId)
 		if err != nil {
 			return err
 		}
-		candles[instrument] = c
+		resp, err := b.analyseCandles(tempId, hc)
+		if err != nil {
+			return err
+		}
+		analyseResult = append(analyseResult, resp)
 	}
 
-	// так как исполнитель тоже слушает стримы, его нужно явно остановить
-	b.executor.Stop()
+	// сортировка по убыванию максимальной волатильности инструментов
+	sort.Slice(analyseResult, func(i, j int) bool {
+		return analyseResult[i].volatilityMax > analyseResult[j].volatilityMax
+	})
+
+	for _, response := range analyseResult {
+		fmt.Printf("vol = %v h/l = %.9f %.9f id = %v\n", response.volatilityMax, response.interval.high,
+			response.interval.low, response.id)
+	}
+
+	// берем первые топ TopInstrumentsQuantity инструментов по волатильности
+	topInstrumentsIntervals := make(map[string]interval, b.StrategyConfig.TopInstrumentsQuantity)
+	topInstrumentsIds := make([]string, 0, b.StrategyConfig.TopInstrumentsQuantity)
+
+	if b.StrategyConfig.TopInstrumentsQuantity > len(analyseResult) {
+		return fmt.Errorf("TopInstrumentsQuantity = %v, but max value = %v\n",
+			b.StrategyConfig.TopInstrumentsQuantity, len(analyseResult))
+	}
+
+	for i := 0; i < b.StrategyConfig.TopInstrumentsQuantity; i++ {
+		r := analyseResult[i]
+		topInstrumentsIntervals[r.id] = r.interval
+		topInstrumentsIds = append(topInstrumentsIds, r.id)
+	}
+
+	// запуск исполнителя, он начнет торговать топовыми инструментами
+	b.executor.Start(topInstrumentsIntervals)
+
+	// по тикеру обновляем
+	wg.Add(1)
+	go func(ctx context.Context) {
+		defer wg.Done()
+		ticker := time.NewTicker(b.StrategyConfig.IntervalUpdateDelay)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				err := b.UpdateIntervals(candles, topInstrumentsIds)
+				if err != nil {
+					b.Client.Logger.Errorf(err.Error())
+				}
+			}
+		}
+	}(b.ctx)
+
+	// Завершение работы бота по его контексту: вызов Stop() или отмена по дедлайну
+	<-b.ctx.Done()
+	b.Client.Logger.Infof("stop interval bot...")
+
+	// явно завершаем работу исполнителя, если нужно выходим из всех позиций
+	err = b.executor.Stop(b.StrategyConfig.SellOut)
+	if err != nil {
+		return err
+	}
 
 	wg.Wait()
 	return nil
@@ -107,6 +176,31 @@ func (b *Bot) Run() error {
 
 func (b *Bot) Stop() {
 	b.cancelBot()
+}
+
+func (b *Bot) UpdateIntervals(storage *CandlesStorage, ids []string) error {
+	for _, id := range ids {
+		// обновляем историю по инструменту
+		err := storage.UpdateCandlesHistory(id)
+		if err != nil {
+			return err
+		}
+		candles, err := storage.Candles(id)
+		if err != nil {
+			return err
+		}
+		// пересчитываем интервал
+		resp, err := b.analyseCandles(id, candles)
+		if err != nil {
+			return err
+		}
+		// вызываем исполнителя
+		err = b.executor.UpdateInterval(resp.id, resp.interval)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checkMoneyBalance - проверка доступного баланса денежных средств
@@ -151,33 +245,41 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 	return nil
 }
 
+type analyseResponse struct {
+	id            string
+	interval      interval
+	volatilityMax float64
+}
+
 // analyseCandles - Расчет максимальной волатильности и интервала цены для инструмента
-func (b *Bot) analyseCandles(id string, candles []*pb.HistoricCandle) (interval, float64, error) {
+func (b *Bot) analyseCandles(id string, candles []*pb.HistoricCandle) (*analyseResponse, error) {
 	// получили список средних цен
 	midPrices := make([]float64, 0, len(candles))
 	for _, candle := range candles {
 		midPrices = append(midPrices, midPrice(candle))
 	}
 	// ищем моду, те находим цену с макс пересечениями
-	data := stats.LoadRawData(midPrices)
-	modes, err := stats.Mode(data)
+	//data := stats.LoadRawData(midPrices)
+	modes, err := stats.Mode(midPrices)
 	var mode float64
 	if err != nil {
-		return interval{}, 0, err
+		return nil, err
 	}
 	if len(modes) > 0 {
 		mode = modes[0]
 	}
 	instr, ok := b.executor.instruments[id]
 	if !ok {
-		return interval{}, 0, fmt.Errorf("%v min price increment not found", id)
+		return nil, fmt.Errorf("%v min price increment not found", id)
 	}
-	up, low := b.findInterval(mode, instr.minPriceInc, candles)
+	// maxVol - сейчас максимальная волатильность это просто кол-во пересечений с модой
+	// без выбора максимальной ширины интервала
 	maxVol := crosses(floatToQuotation(mode, instr.minPriceInc).ToFloat(), candles)
-	return interval{
-		high: floatToQuotation(up, instr.minPriceInc),
-		low:  floatToQuotation(low, instr.minPriceInc),
-	}, float64(maxVol), nil
+	return &analyseResponse{
+		id:            id,
+		interval:      b.findInterval(mode, instr.minPriceInc, candles),
+		volatilityMax: float64(maxVol),
+	}, nil
 }
 
 // midPrice - Средняя цена свечи
@@ -186,7 +288,7 @@ func midPrice(c *pb.HistoricCandle) float64 {
 }
 
 // findInterval - Поиск интервала по моде и списку свечей
-func (b *Bot) findInterval(mode float64, inc *pb.Quotation, candles []*pb.HistoricCandle) (float64, float64) {
+func (b *Bot) findInterval(mode float64, inc *pb.Quotation, candles []*pb.HistoricCandle) interval {
 	// минимальный профит в валюте / шаг цены = начальное кол-во шагов цены в интервале
 	k := int(math.Round((mode * b.StrategyConfig.MinProfit / 100) / inc.ToFloat()))
 	mode = floatToQuotation(mode, inc).ToFloat()
@@ -206,7 +308,10 @@ func (b *Bot) findInterval(mode float64, inc *pb.Quotation, candles []*pb.Histor
 		}
 	}
 	// TODO сделать расширение по шагам
-	return upper, lower
+	return interval{
+		high: upper,
+		low:  lower,
+	}
 }
 
 // crosses - Количество пересечений свечей с горизонтальной линией цены price
