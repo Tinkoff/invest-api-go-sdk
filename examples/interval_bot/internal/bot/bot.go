@@ -324,3 +324,35 @@ func crosses(price float64, candles []*pb.HistoricCandle) int64 {
 	}
 	return count
 }
+
+// timeIntervalByDays - Функция возвращает ближайший временной интервал до now, в котором содержится reqDays рабочих дней
+func timeIntervalByDays(reqDays int, now time.Time) (from time.Time, to time.Time) {
+	y, m, d := now.Date()
+	daysFromMonday := int(now.Weekday() - time.Monday)
+	switch {
+	// если сегодня пн
+	case daysFromMonday == 0:
+		// запрашиваем за вт-пт той недели
+		to = time.Date(y, m, d, 0, 0, 0, 0, time.Local).Add(-48 * time.Hour)
+		from = to.Add(-1 * time.Duration(reqDays) * 24 * time.Hour)
+	// если сегодня вт-чт
+	case daysFromMonday > 0 && daysFromMonday < 4:
+		delta := time.Duration(reqDays - daysFromMonday)
+		// от сегодня до пн
+		to = time.Date(y, m, d, 0, 0, 0, 0, time.Local)
+		// from1 - это понедельник текущей недели
+		from1 := to.Add(-1 * 24 * time.Hour * time.Duration(daysFromMonday))
+		// остаток с той недели
+		to2 := from1.Add(-1 * 24 * time.Hour * 2)
+		from = to2.Add(-1 * 24 * time.Hour * delta)
+	// сегодня пт-сб
+	case daysFromMonday >= 4:
+		to = time.Date(y, m, d, 0, 0, 0, 0, time.Local)
+		from = to.Add(-1 * time.Duration(reqDays) * 24 * time.Hour)
+	//  сегодня вс
+	case daysFromMonday == -1:
+		to = time.Date(y, m, d-1, 0, 0, 0, 0, time.Local)
+		from = to.Add(-1 * time.Duration(reqDays) * 24 * time.Hour)
+	}
+	return from, to
+}
