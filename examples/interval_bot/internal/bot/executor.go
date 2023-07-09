@@ -7,6 +7,7 @@ import (
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"math"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -131,6 +132,10 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 		ordersService:     c.NewOrdersServiceClient(),
 		operationsService: c.NewOperationsServiceClient(),
 	}
+
+	// стримы запускаем сразу в конструкторе, они просто ждут обновления позиций и совершения сделок
+	// метод Start() выставляет заявки на покупку инструментов, далее исполнитель сам непрерывно будет выставлять заявки,
+	// по мере исполнения более ранних заявок
 
 	// обновление позиций
 	e.wg.Add(1)
@@ -392,7 +397,7 @@ func (e *Executor) UpdateInterval(id string, i interval) error {
 	case TRY_TO_SELL:
 		p1 := floatToQuotation(i.high, currentInstrument.minPriceInc)
 		p2 := floatToQuotation(oldInterval.high, currentInstrument.minPriceInc)
-		if p1.GetUnits() == p2.GetUnits() && p1.GetNano() == p2.GetNano() {
+		if reflect.DeepEqual(p1, p2) {
 			return nil
 		}
 		err := e.ReplaceLimit(id, i.high)
@@ -402,7 +407,7 @@ func (e *Executor) UpdateInterval(id string, i interval) error {
 	case TRY_TO_BUY:
 		p1 := floatToQuotation(i.low, currentInstrument.minPriceInc)
 		p2 := floatToQuotation(oldInterval.low, currentInstrument.minPriceInc)
-		if p1.GetUnits() == p2.GetUnits() && p1.GetNano() == p2.GetNano() {
+		if reflect.DeepEqual(p1, p2) {
 			return nil
 		}
 		err := e.ReplaceLimit(id, i.low)
