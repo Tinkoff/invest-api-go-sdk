@@ -21,8 +21,12 @@ const (
 	SHARES_NUM = 300
 	// EXCHANGE - Биржа на которой будет работать бот
 	EXCHANGE = "MOEX"
+	// CURRENCY - Валюта для работы бота
 	CURRENCY = "RUB"
+	// QUANTITY - Количество лотов инструментов, которые будет покупать/продавать бот
 	QUANTITY = 1
+	// MINUTES - Интервал обновления исторических свечей для расчета нового коридора цен в минутах
+	MINUTES = 5
 )
 
 func main() {
@@ -89,14 +93,14 @@ func main() {
 			instrumentIds = append(instrumentIds, share.GetUid())
 		}
 	}
-	logger.Infof("got %v instruments\n", len(instrumentIds))
+	logger.Infof("got %v instruments", len(instrumentIds))
 
 	intervalConfig := bot.IntervalStrategyConfig{
 		Instruments:            instrumentIds,
 		Quantity:               QUANTITY,
 		MinProfit:              0.5,
 		SellOut:                true,
-		IntervalUpdateDelay:    time.Minute * 5,
+		IntervalUpdateDelay:    time.Minute * MINUTES,
 		TopInstrumentsQuantity: 15,
 	}
 	// создание интервального бота
