@@ -111,6 +111,7 @@ type Executor struct {
 	positions         *Positions
 	instrumentsStates *States
 	intervals         *intervals
+	strategyProfit    float64
 
 	client            *investgo.Client
 	ordersService     *investgo.OrdersServiceClient
@@ -125,6 +126,7 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 		instruments:       ids,
 		positions:         NewPositions(),
 		instrumentsStates: NewStates(),
+		strategyProfit:    0,
 		wg:                wg,
 		ctx:               ctxExecutor,
 		cancel:            cancel,
@@ -179,13 +181,16 @@ func (e *Executor) Stop(sellOut bool) error {
 	// останавливаем обновление позиций и сделок
 	e.cancel()
 	e.wg.Wait()
+	e.client.Logger.Infof("strategy profit = %.9f", e.strategyProfit)
 	// если нужно, то в конце торговой сессии выходим из всех, открытых ботом, позиций
 	if sellOut {
 		e.client.Logger.Infof("start positions sell out...")
-		err := e.SellOut()
+		sellOutProfit, err := e.SellOut()
 		if err != nil {
 			return err
 		}
+		e.client.Logger.Infof("sell out profit = %.9f", sellOutProfit)
+		e.client.Logger.Infof("total profit = %.9f", e.strategyProfit+sellOutProfit)
 	}
 	e.client.Logger.Infof("executor stopped")
 	return nil
@@ -553,16 +558,34 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 				}
 				// обновление статуса инструмента после исполнения лимитной заявки
 				var is InstrumentState
-				if t.GetAccountId() == e.client.Config.AccountId {
-					switch {
-					case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_BUY:
-						is = IN_STOCK
-						// TODO add entry price
-					case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_SELL:
-						is = OUT_OF_STOCK
-					}
+				if t.GetAccountId() != e.client.Config.AccountId {
+					continue
 				}
+				orderTrades := t.GetTrades()
 				uid := t.GetInstrumentUid()
+				if len(orderTrades) < 1 {
+					e.client.Logger.Errorf("order trades len < 1")
+					continue
+				}
+				orderPrice := orderTrades[len(orderTrades)-1].GetPrice().ToFloat()
+				currentInstrument, ok := e.instruments[uid]
+				if !ok {
+					e.client.Logger.Errorf("%v not found in executor instruments", uid)
+					continue
+				}
+				switch {
+				case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_BUY:
+					is = IN_STOCK
+					currentInstrument.entryPrice = orderPrice
+					e.instruments[uid] = currentInstrument
+					e.client.Logger.Infof("buy order is fill, price = %v figi = %v", orderPrice, t.GetFigi())
+				case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_SELL:
+					is = OUT_OF_STOCK
+					profit := (orderPrice - currentInstrument.entryPrice) * float64(currentInstrument.lot) * float64(currentInstrument.quantity)
+					e.strategyProfit += profit
+					e.client.Logger.Infof("buy order is fill, profit = %v figi = %v", profit, t.GetFigi())
+				}
+
 				// обновляем состояние инструмента
 				e.instrumentsStates.Update(uid, State{instrumentState: is})
 				// как только купили выставляем заявку на продажу и наоборот
@@ -594,23 +617,24 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 }
 
 // SellOut - Метод выхода из всех текущих позиций
-func (e *Executor) SellOut() error {
+func (e *Executor) SellOut() (float64, error) {
 	// TODO for futures and options
 	// отменяем все лимитные поручения
 	for id, state := range e.instrumentsStates.s {
 		if state.instrumentState == TRY_TO_SELL || state.instrumentState == TRY_TO_BUY {
 			err := e.CancelLimit(id)
 			if err != nil {
-				return err
+				return 0, err
 			}
 		}
 	}
 	// продаем бумаги, которые в наличии
 	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
+	var sellOutProfit float64
 	securities := resp.GetSecurities()
 	for _, security := range securities {
 		var lot int64
@@ -634,7 +658,7 @@ func (e *Executor) SellOut() error {
 			})
 			if err != nil {
 				e.client.Logger.Errorf(investgo.MessageFromHeader(resp.GetHeader()))
-				return err
+				return 0, err
 			}
 		} else {
 			resp, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
@@ -647,9 +671,13 @@ func (e *Executor) SellOut() error {
 			})
 			if err != nil {
 				e.client.Logger.Errorf(investgo.MessageFromHeader(resp.GetHeader()))
-				return err
+				return 0, err
+			}
+			if resp.GetExecutionReportStatus() == pb.OrderExecutionReportStatus_EXECUTION_REPORT_STATUS_FILL {
+				// разница в цене инструмента * лотность * кол-во лотов
+				sellOutProfit += (resp.GetExecutedOrderPrice().ToFloat() - instrument.entryPrice) * float64(instrument.lot) * float64(instrument.quantity)
 			}
 		}
 	}
-	return nil
+	return sellOutProfit, nil
 }
