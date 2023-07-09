@@ -175,10 +175,20 @@ func (e *Executor) Start(i map[string]interval) {
 }
 
 // Stop - Завершение работы
-func (e *Executor) Stop() {
+func (e *Executor) Stop(sellOut bool) error {
+	// останавливаем обновление позиций и сделок
 	e.cancel()
 	e.wg.Wait()
+	// если нужно, то в конце торговой сессии выходим из всех, открытых ботом, позиций
+	if sellOut {
+		e.client.Logger.Infof("start positions sell out...")
+		err := e.SellOut()
+		if err != nil {
+			return err
+		}
+	}
 	e.client.Logger.Infof("executor stopped")
+	return nil
 }
 
 // BuyLimit - Выставление лимитного торгового поручения на покупку инструмента с uid = id по цене ближайшей к price
