@@ -135,10 +135,15 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 		operationsService: c.NewOperationsServiceClient(),
 	}
 
-	// стримы запускаем сразу в конструкторе, они просто ждут обновления позиций и совершения сделок
-	// метод Start() выставляет заявки на покупку инструментов, далее исполнитель сам непрерывно будет выставлять заявки,
-	// по мере исполнения более ранних заявок
+	return e
+}
 
+// Start - Запуск отслеживания инструментов и непрерывное выставление лимитных заявок по интервалам
+func (e *Executor) Start(i map[string]interval) error {
+	err := e.updatePositionsUnary()
+	if err != nil {
+		return err
+	}
 	// обновление позиций
 	e.wg.Add(1)
 	go func(ctx context.Context) {
@@ -159,11 +164,6 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 		}
 	}(e.ctx)
 
-	return e
-}
-
-// Start - Запуск отслеживания инструментов и непрерывное выставление лимитных заявок по интервалам
-func (e *Executor) Start(i map[string]interval) {
 	// начальные значения интервалов цен
 	e.intervals = newIntervals(i)
 
@@ -174,6 +174,7 @@ func (e *Executor) Start(i map[string]interval) {
 			e.client.Logger.Errorf(err.Error())
 		}
 	}
+	return nil
 }
 
 // Stop - Завершение работы
@@ -181,7 +182,6 @@ func (e *Executor) Stop(sellOut bool) error {
 	// останавливаем обновление позиций и сделок
 	e.cancel()
 	e.wg.Wait()
-	e.client.Logger.Infof("strategy profit = %.9f", e.strategyProfit)
 	// если нужно, то в конце торговой сессии выходим из всех, открытых ботом, позиций
 	if sellOut {
 		e.client.Logger.Infof("start positions sell out...")
@@ -189,8 +189,11 @@ func (e *Executor) Stop(sellOut bool) error {
 		if err != nil {
 			return err
 		}
+		e.client.Logger.Infof("strategy profit = %.9f", e.strategyProfit)
 		e.client.Logger.Infof("sell out profit = %.9f", sellOutProfit)
 		e.client.Logger.Infof("total profit = %.9f", e.strategyProfit+sellOutProfit)
+	} else {
+		e.client.Logger.Infof("strategy profit = %.9f", e.strategyProfit)
 	}
 	e.client.Logger.Infof("executor stopped")
 	return nil
@@ -241,8 +244,6 @@ func (e *Executor) possibleToBuy(id string, price float64) bool {
 			moneyInFloat = m.ToFloat()
 		}
 	}
-
-	fmt.Println(moneyInFloat)
 	if moneyInFloat < required {
 		e.client.Logger.Infof("executor: not enough money to buy order with id = %v", id)
 	}
@@ -435,10 +436,6 @@ func (e *Executor) UpdateInterval(id string, i interval) error {
 
 // listenPositions - Метод слушает стрим позиций и обновляет их
 func (e *Executor) listenPositions(ctx context.Context) error {
-	err := e.updatePositionsUnary()
-	if err != nil {
-		return err
-	}
 	operationsStreamService := e.client.NewOperationsStreamClient()
 	stream, err := operationsStreamService.PositionsStream([]string{e.client.Config.AccountId})
 	if err != nil {
