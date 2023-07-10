@@ -139,7 +139,10 @@ func (b *Bot) Run() error {
 	}
 
 	// запуск исполнителя, он начнет торговать топовыми инструментами
-	b.executor.Start(topInstrumentsIntervals)
+	err = b.executor.Start(topInstrumentsIntervals)
+	if err != nil {
+		return err
+	}
 
 	// по тикеру обновляем
 	wg.Add(1)
@@ -355,4 +358,112 @@ func timeIntervalByDays(reqDays int, now time.Time) (from time.Time, to time.Tim
 		from = to.Add(-1 * time.Duration(reqDays) * 24 * time.Hour)
 	}
 	return from, to
+}
+
+func (b *Bot) BackTest() (float64, error) {
+	// качаем свечи за 3 дня
+
+	// создаем хранилище исторических свечей
+	marketDataService := b.Client.NewMarketDataServiceClient()
+	candles := NewCandlesStorage(marketDataService)
+
+	// загружаем минутные свечи по всем инструментам для анализа волатильности
+	from, to := timeIntervalByDays(3, time.Now().Add(-24*time.Hour))
+	err := candles.LoadCandlesHistory(b.StrategyConfig.Instruments, pb.CandleInterval_CANDLE_INTERVAL_1_MIN, from, to)
+	if err != nil {
+		return 0, err
+	}
+
+	// считаем на трех дня
+
+	// отбор топ инструментов по волатильности
+
+	// результаты анализа
+	analyseResult := make([]*analyseResponse, 0, len(b.StrategyConfig.Instruments))
+
+	// запуск анализа инструментов по их историческим свечам
+	for _, id := range b.StrategyConfig.Instruments {
+		tempId := id
+		hc, err := candles.Candles(tempId)
+		if err != nil {
+			return 0, err
+		}
+		resp, err := b.analyseCandles(tempId, hc)
+		if err != nil {
+			return 0, err
+		}
+		analyseResult = append(analyseResult, resp)
+	}
+
+	// сортировка по убыванию максимальной волатильности инструментов
+	sort.Slice(analyseResult, func(i, j int) bool {
+		return analyseResult[i].volatilityMax > analyseResult[j].volatilityMax
+	})
+
+	for _, response := range analyseResult {
+		fmt.Printf("vol = %v h/l = %.9f %.9f id = %v\n", response.volatilityMax, response.interval.high,
+			response.interval.low, response.id)
+	}
+
+	// берем первые топ TopInstrumentsQuantity инструментов по волатильности
+	topInstrumentsIntervals := make(map[string]interval, b.StrategyConfig.TopInstrumentsQuantity)
+	topInstrumentsIds := make([]string, 0, b.StrategyConfig.TopInstrumentsQuantity)
+
+	if b.StrategyConfig.TopInstrumentsQuantity > len(analyseResult) {
+		return 0, fmt.Errorf("TopInstrumentsQuantity = %v, but max value = %v\n",
+			b.StrategyConfig.TopInstrumentsQuantity, len(analyseResult))
+	}
+
+	for i := 0; i < b.StrategyConfig.TopInstrumentsQuantity; i++ {
+		r := analyseResult[i]
+		topInstrumentsIntervals[r.id] = r.interval
+		topInstrumentsIds = append(topInstrumentsIds, r.id)
+	}
+	// проверяем на 4ом
+	from, to = timeIntervalByDays(1, time.Now())
+	yesterdayCandlesStorage := NewCandlesStorage(marketDataService)
+	err = yesterdayCandlesStorage.LoadCandlesHistory(topInstrumentsIds, pb.CandleInterval_CANDLE_INTERVAL_1_MIN, from, to)
+	if err != nil {
+		return 0, err
+	}
+
+	var requiredMoneyForStart float64
+
+	for _, id := range topInstrumentsIds {
+		currentInterval := topInstrumentsIntervals[id]
+		lot := b.executor.instruments[id].lot
+
+		requiredMoneyForStart += currentInterval.low * float64(lot)
+	}
+
+	var totoalProfit float64
+
+	for _, id := range topInstrumentsIds {
+		yesterdayCandles, err := yesterdayCandlesStorage.Candles(id)
+		if err != nil {
+			return 0, err
+		}
+		inStock := false
+		currentInterval := topInstrumentsIntervals[id]
+		delta := currentInterval.high - currentInterval.low
+		lot := b.executor.instruments[id].lot
+		for _, candle := range yesterdayCandles {
+			if inStock {
+				if currentInterval.high <= candle.GetHigh().ToFloat() {
+					// могли бы продать
+					totoalProfit += delta * float64(lot)
+					inStock = false
+				}
+			} else {
+				if currentInterval.low >= candle.GetLow().ToFloat() {
+					// могли бы купить
+					inStock = true
+				}
+			}
+		}
+	}
+
+	b.Client.Logger.Infof("profit in percent = %.9f", (totoalProfit/requiredMoneyForStart)*100)
+
+	return totoalProfit, nil
 }
