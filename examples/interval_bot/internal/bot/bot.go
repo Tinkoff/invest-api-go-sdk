@@ -262,7 +262,6 @@ func (b *Bot) analyseCandles(id string, candles []*pb.HistoricCandle) (*analyseR
 		midPrices = append(midPrices, midPrice(candle))
 	}
 	// ищем моду, те находим цену с макс пересечениями
-	//data := stats.LoadRawData(midPrices)
 	modes, err := stats.Mode(midPrices)
 	var mode float64
 	if err != nil {
@@ -275,12 +274,47 @@ func (b *Bot) analyseCandles(id string, candles []*pb.HistoricCandle) (*analyseR
 	if !ok {
 		return nil, fmt.Errorf("%v min price increment not found", id)
 	}
-	// maxVol - сейчас максимальная волатильность это просто кол-во пересечений с модой
-	// без выбора максимальной ширины интервала
-	maxVol := crosses(floatToQuotation(mode, instr.minPriceInc).ToFloat(), candles)
+	// maxVol - Кол-во пересечений с модой
+	i, maxVol := b.findInterval(mode, instr.minPriceInc, candles)
 	return &analyseResponse{
 		id:            id,
-		interval:      b.findInterval(mode, instr.minPriceInc, candles),
+		interval:      i,
+		volatilityMax: maxVol,
+	}, nil
+}
+
+// analyseCandlesByMathStat - Расчет максимальной волатильности и интервала цены для инструмента
+func (b *Bot) analyseCandlesByMathStat(id string, candles []*pb.HistoricCandle) (*analyseResponse, error) {
+	// получили список средних цен
+	midPrices := make([]float64, 0, len(candles))
+	for _, candle := range candles {
+		midPrices = append(midPrices, midPrice(candle))
+	}
+	median, err := stats.Median(midPrices)
+	if err != nil {
+		return nil, err
+	}
+	low, err := stats.Percentile(midPrices, 10)
+	if err != nil {
+		return nil, err
+	}
+	high, err := stats.Percentile(midPrices, 90)
+	if err != nil {
+		return nil, err
+	}
+	i := interval{
+		high: high,
+		low:  low,
+	}
+	instr, ok := b.executor.instruments[id]
+	if !ok {
+		return nil, fmt.Errorf("%v min price increment not found", id)
+	}
+	// maxVol - Кол-во пересечений с медианой
+	maxVol := crosses(floatToQuotation(median, instr.minPriceInc).ToFloat(), candles)
+	return &analyseResponse{
+		id:            id,
+		interval:      i,
 		volatilityMax: float64(maxVol),
 	}, nil
 }
@@ -290,13 +324,14 @@ func midPrice(c *pb.HistoricCandle) float64 {
 	return (c.GetHigh().ToFloat() + c.GetLow().ToFloat() + c.GetClose().ToFloat() + c.GetOpen().ToFloat()) / 4
 }
 
-// findInterval - Поиск интервала по моде и списку свечей
-func (b *Bot) findInterval(mode float64, inc *pb.Quotation, candles []*pb.HistoricCandle) interval {
+// findInterval - Поиск интервала
+func (b *Bot) findInterval(mode float64, inc *pb.Quotation, candles []*pb.HistoricCandle) (interval, float64) {
 	// минимальный профит в валюте / шаг цены = начальное кол-во шагов цены в интервале
 	k := int(math.Round((mode * b.StrategyConfig.MinProfit / 100) / inc.ToFloat()))
 	mode = floatToQuotation(mode, inc).ToFloat()
 
 	upper, lower := mode, mode
+	var maxCrosses int64
 	for i := 1; i <= k; i++ {
 		upper = upper + inc.ToFloat()
 		lower = lower - inc.ToFloat()
@@ -310,18 +345,59 @@ func (b *Bot) findInterval(mode float64, inc *pb.Quotation, candles []*pb.Histor
 			upper = upper - inc.ToFloat()
 		}
 	}
-	// TODO сделать расширение по шагам
+
+	// volatility = maxCrosses * (width/median * 100)
+	var initialVolatility, volatility, delta float64
+	maxCrosses = intervalCrosses(upper, lower, candles)
+	initialVolatility = ((upper - lower) / mode * 100) * float64(maxCrosses)
+	volatility = initialVolatility
+
+	for {
+		u, l := upper, lower
+		mc := maxCrosses
+		upper = upper + inc.ToFloat()
+		lower = lower - inc.ToFloat()
+
+		upperCrosses := crosses(upper, candles)
+		lowerCrosses := crosses(lower, candles)
+
+		if upperCrosses > lowerCrosses {
+			lower = lower + inc.ToFloat()
+		} else {
+			upper = upper - inc.ToFloat()
+		}
+		maxCrosses = intervalCrosses(upper, lower, candles)
+		tempVolatility := ((upper - lower) / mode * 100) * float64(maxCrosses)
+
+		delta = tempVolatility - volatility
+		volatility = tempVolatility
+		if delta < 0 {
+			upper, lower = u, l
+			maxCrosses = mc
+			volatility = ((upper - lower) / mode * 100) * float64(maxCrosses)
+			break
+		}
+	}
 	return interval{
 		high: upper,
 		low:  lower,
+	}, volatility
+}
+
+func intervalCrosses(h, l float64, candles []*pb.HistoricCandle) (count int64) {
+	for _, candle := range candles {
+		if h <= candle.GetHigh().ToFloat() && l >= candle.GetLow().ToFloat() {
+			count++
+		}
 	}
+	return count
 }
 
 // crosses - Количество пересечений свечей с горизонтальной линией цены price
 func crosses(price float64, candles []*pb.HistoricCandle) int64 {
 	var count int64
 	for _, candle := range candles {
-		if price < candle.GetHigh().ToFloat() && price > candle.GetLow().ToFloat() {
+		if price <= candle.GetHigh().ToFloat() && price >= candle.GetLow().ToFloat() {
 			count++
 		}
 	}
@@ -388,7 +464,7 @@ func (b *Bot) BackTest() (float64, error) {
 		if err != nil {
 			return 0, err
 		}
-		resp, err := b.analyseCandles(tempId, hc)
+		resp, err := b.analyseCandlesByMathStat(tempId, hc)
 		if err != nil {
 			return 0, err
 		}
@@ -436,7 +512,7 @@ func (b *Bot) BackTest() (float64, error) {
 		requiredMoneyForStart += currentInterval.low * float64(lot)
 	}
 
-	var totoalProfit float64
+	var totalProfit float64
 
 	for _, id := range topInstrumentsIds {
 		yesterdayCandles, err := yesterdayCandlesStorage.Candles(id)
@@ -451,7 +527,7 @@ func (b *Bot) BackTest() (float64, error) {
 			if inStock {
 				if currentInterval.high <= candle.GetHigh().ToFloat() {
 					// могли бы продать
-					totoalProfit += delta * float64(lot)
+					totalProfit += delta * float64(lot)
 					inStock = false
 				}
 			} else {
@@ -463,7 +539,7 @@ func (b *Bot) BackTest() (float64, error) {
 		}
 	}
 
-	b.Client.Logger.Infof("profit in percent = %.9f", (totoalProfit/requiredMoneyForStart)*100)
+	b.Client.Logger.Infof("profit in percent = %.9f", (totalProfit/requiredMoneyForStart)*100)
 
-	return totoalProfit, nil
+	return totalProfit, nil
 }
