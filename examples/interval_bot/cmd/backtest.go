@@ -101,6 +101,9 @@ func main() {
 		SellOut:                true,
 		IntervalUpdateDelay:    time.Minute * MINUTES,
 		TopInstrumentsQuantity: 15,
+		StorageDBPath:          "examples/interval_bot/candles/candles.db",
+		StorageCandleInterval:  pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
+		StorageFromTime:        time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
 	}
 	// создание интервального бота
 	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)

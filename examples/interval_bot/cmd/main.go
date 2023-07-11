@@ -16,18 +16,18 @@ import (
 	"time"
 )
 
-const (
-	// SHARES_NUM - Количество акций для торгов
-	SHARES_NUM = 300
-	// EXCHANGE - Биржа на которой будет работать бот
-	EXCHANGE = "MOEX"
-	// CURRENCY - Валюта для работы бота
-	CURRENCY = "RUB"
-	// QUANTITY - Количество лотов инструментов, которые будет покупать/продавать бот
-	QUANTITY = 1
-	// MINUTES - Интервал обновления исторических свечей для расчета нового коридора цен в минутах
-	MINUTES = 5
-)
+//const (
+//	// SHARES_NUM - Количество акций для торгов
+//	SHARES_NUM = 300
+//	// EXCHANGE - Биржа на которой будет работать бот
+//	EXCHANGE = "MOEX"
+//	// CURRENCY - Валюта для работы бота
+//	CURRENCY = "RUB"
+//	// QUANTITY - Количество лотов инструментов, которые будет покупать/продавать бот
+//	QUANTITY = 1
+//	// MINUTES - Интервал обновления исторических свечей для расчета нового коридора цен в минутах
+//	MINUTES = 5
+//)
 
 func main() {
 	// загружаем конфигурацию для сдк из .yaml файла
@@ -102,6 +102,9 @@ func main() {
 		SellOut:                true,
 		IntervalUpdateDelay:    time.Minute * MINUTES,
 		TopInstrumentsQuantity: 15,
+		StorageDBPath:          "examples/interval_bot/candles/candles.db",
+		StorageCandleInterval:  pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
+		StorageFromTime:        time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
 	}
 	// создание интервального бота
 	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)
