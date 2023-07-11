@@ -27,6 +27,12 @@ type IntervalStrategyConfig struct {
 	TopInstrumentsQuantity int
 	// SellOut - Если true, то по достижению дедлайна бот выходит из всех активных позиций
 	SellOut bool
+	// StorageDBPath - Путь к бд sqlite, в которой лежат исторические свечи по инструментам
+	StorageDBPath string
+	// StorageCandleInterval - Интервал для обновления и запроса исторических свечей
+	StorageCandleInterval pb.CandleInterval
+	// StorageFromTime - Время, от которого будет хранилище будет загружать историю для новых инструментов
+	StorageFromTime time.Time
 }
 
 type interval struct {
@@ -41,6 +47,7 @@ type Bot struct {
 	cancelBot context.CancelFunc
 
 	executor *Executor
+	storage  *CandlesStorage
 }
 
 func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrategyConfig) (*Bot, error) {
@@ -48,7 +55,9 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 
 	// по конфигу стратегии заполняем map для executor
 	instrumentService := client.NewInstrumentsServiceClient()
+	marketDataService := client.NewMarketDataServiceClient()
 	instruments := make(map[string]Instrument, len(config.Instruments))
+	instrumentsForStorage := make(map[string]StorageInstrument, len(config.Instruments))
 
 	for _, instrument := range config.Instruments {
 		// в данном случае ключ это uid, поэтому используем LotByUid()
@@ -64,14 +73,25 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 			currency:    resp.GetInstrument().GetCurrency(),
 			minPriceInc: resp.GetInstrument().GetMinPriceIncrement(),
 		}
+		instrumentsForStorage[instrument] = StorageInstrument{
+			CandleInterval: config.StorageCandleInterval,
+			PriceStep:      resp.GetInstrument().GetMinPriceIncrement(),
+			LastUpdate:     config.StorageFromTime,
+		}
 	}
 
+	storage, err := NewCandlesStorage(config.StorageDBPath, instrumentsForStorage, client.Logger, marketDataService)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	return &Bot{
 		StrategyConfig: config,
 		Client:         client,
 		ctx:            botCtx,
 		cancelBot:      cancel,
 		executor:       NewExecutor(ctx, client, instruments),
+		storage:        storage,
 	}, nil
 }
 
@@ -83,17 +103,6 @@ func (b *Bot) Run() error {
 	if err != nil {
 		b.Client.Logger.Fatalf(err.Error())
 	}
-	// создаем хранилище исторических свечей
-	marketDataService := b.Client.NewMarketDataServiceClient()
-	candles := NewCandlesStorage(marketDataService)
-
-	// загружаем минутные свечи по всем инструментам для анализа волатильности
-	err = candles.LoadCandlesHistory(b.StrategyConfig.Instruments, pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
-		time.Now().Add(-1*24*time.Hour), time.Now())
-	if err != nil {
-		return err
-	}
-
 	// отбор топ инструментов по волатильности
 
 	// результаты анализа
@@ -102,7 +111,7 @@ func (b *Bot) Run() error {
 	// запуск анализа инструментов по их историческим свечам
 	for _, id := range b.StrategyConfig.Instruments {
 		tempId := id
-		hc, err := candles.Candles(tempId)
+		hc, err := b.storage.Candles(tempId, time.Now(), time.Now())
 		if err != nil {
 			return err
 		}
@@ -155,7 +164,7 @@ func (b *Bot) Run() error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				err := b.UpdateIntervals(candles, topInstrumentsIds)
+				err := b.UpdateIntervals(topInstrumentsIds)
 				if err != nil {
 					b.Client.Logger.Errorf(err.Error())
 				}
@@ -181,14 +190,14 @@ func (b *Bot) Stop() {
 	b.cancelBot()
 }
 
-func (b *Bot) UpdateIntervals(storage *CandlesStorage, ids []string) error {
+func (b *Bot) UpdateIntervals(ids []string) error {
 	for _, id := range ids {
 		// обновляем историю по инструменту
-		err := storage.UpdateCandlesHistory(id)
+		err := b.storage.UpdateCandlesHistory(id)
 		if err != nil {
 			return err
 		}
-		candles, err := storage.Candles(id)
+		candles, err := b.storage.Candles(id, time.Now(), time.Now())
 		if err != nil {
 			return err
 		}
@@ -294,11 +303,11 @@ func (b *Bot) analyseCandlesByMathStat(id string, candles []*pb.HistoricCandle) 
 	if err != nil {
 		return nil, err
 	}
-	low, err := stats.Percentile(midPrices, 10)
+	low, err := stats.Percentile(midPrices, 5)
 	if err != nil {
 		return nil, err
 	}
-	high, err := stats.Percentile(midPrices, 90)
+	high, err := stats.Percentile(midPrices, 95)
 	if err != nil {
 		return nil, err
 	}
@@ -438,29 +447,25 @@ func timeIntervalByDays(reqDays int, now time.Time) (from time.Time, to time.Tim
 
 func (b *Bot) BackTest() (float64, error) {
 	// качаем свечи за 3 дня
-
-	// создаем хранилище исторических свечей
-	marketDataService := b.Client.NewMarketDataServiceClient()
-	candles := NewCandlesStorage(marketDataService)
+	now := time.Now().Add(-48 * time.Hour)
 
 	// загружаем минутные свечи по всем инструментам для анализа волатильности
-	from, to := timeIntervalByDays(3, time.Now().Add(-24*time.Hour))
-	err := candles.LoadCandlesHistory(b.StrategyConfig.Instruments, pb.CandleInterval_CANDLE_INTERVAL_1_MIN, from, to)
-	if err != nil {
-		return 0, err
+	from, to := timeIntervalByDays(3, now.Add(-24*time.Hour))
+	for _, instrument := range b.StrategyConfig.Instruments {
+		err := b.storage.UpdateCandlesHistory(instrument)
+		if err != nil {
+			return 0, err
+		}
 	}
-
 	// считаем на трех дня
-
 	// отбор топ инструментов по волатильности
-
 	// результаты анализа
 	analyseResult := make([]*analyseResponse, 0, len(b.StrategyConfig.Instruments))
 
 	// запуск анализа инструментов по их историческим свечам
 	for _, id := range b.StrategyConfig.Instruments {
 		tempId := id
-		hc, err := candles.Candles(tempId)
+		hc, err := b.storage.Candles(tempId, from, to)
 		if err != nil {
 			return 0, err
 		}
@@ -496,13 +501,7 @@ func (b *Bot) BackTest() (float64, error) {
 		topInstrumentsIds = append(topInstrumentsIds, r.id)
 	}
 	// проверяем на 4ом
-	from, to = timeIntervalByDays(1, time.Now())
-	yesterdayCandlesStorage := NewCandlesStorage(marketDataService)
-	err = yesterdayCandlesStorage.LoadCandlesHistory(topInstrumentsIds, pb.CandleInterval_CANDLE_INTERVAL_1_MIN, from, to)
-	if err != nil {
-		return 0, err
-	}
-
+	from, to = timeIntervalByDays(1, now)
 	var requiredMoneyForStart float64
 
 	for _, id := range topInstrumentsIds {
@@ -515,7 +514,7 @@ func (b *Bot) BackTest() (float64, error) {
 	var totalProfit float64
 
 	for _, id := range topInstrumentsIds {
-		yesterdayCandles, err := yesterdayCandlesStorage.Candles(id)
+		yesterdayCandles, err := b.storage.Candles(id, from, to)
 		if err != nil {
 			return 0, err
 		}
