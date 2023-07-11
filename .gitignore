@@ -14,3 +14,4 @@ desert.go
 main
 /vendor/
 *.db
+*_test.go
