@@ -20,16 +20,18 @@ type StorageInstrument struct {
 // CandlesStorage - Локально хранилище свечей в sqlite
 type CandlesStorage struct {
 	instruments map[string]StorageInstrument
+	candles     map[string][]*pb.HistoricCandle
 	mds         *investgo.MarketDataServiceClient
 	logger      investgo.Logger
 	db          *sqlx.DB
 }
 
 // NewCandlesStorage - Создание хранилища свечей
-func NewCandlesStorage(dbpath string, required map[string]StorageInstrument, l investgo.Logger, mds *investgo.MarketDataServiceClient) (*CandlesStorage, error) {
+func NewCandlesStorage(dbpath string, update bool, required map[string]StorageInstrument, l investgo.Logger, mds *investgo.MarketDataServiceClient) (*CandlesStorage, error) {
 	cs := &CandlesStorage{
 		mds:         mds,
 		instruments: make(map[string]StorageInstrument),
+		candles:     make(map[string][]*pb.HistoricCandle),
 		logger:      l,
 	}
 	// инициализируем бд
@@ -67,14 +69,25 @@ func NewCandlesStorage(dbpath string, required map[string]StorageInstrument, l i
 		}
 	}
 	// вычитываем из бд даты последних обновлений
-	err = cs.lastUpdates()
-	// обновляем в бд данные по всем инструментам
+	if update {
+		err = cs.lastUpdates()
+		// обновляем в бд данные по всем инструментам
+		for id := range required {
+			err = cs.UpdateCandlesHistory(id)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	// загрузка всех свечей из бд в мапу
 	for id := range required {
-		err = cs.UpdateCandlesHistory(id)
+		tmp, err := cs.CandlesAll(id)
 		if err != nil {
 			return nil, err
 		}
+		cs.candles[id] = tmp
 	}
+
 	return cs, err
 }
 
@@ -84,12 +97,87 @@ func (c *CandlesStorage) Close() error {
 }
 
 // Candles - Получение исторических свечей по uid инструмента
+//func (c *CandlesStorage) Candles(id string, from, to time.Time) ([]*pb.HistoricCandle, error) {
+//	instrument, ok := c.instruments[id]
+//	if !ok {
+//		return nil, fmt.Errorf("%v instrument not found, at first LoadCandlesHistory()", id)
+//	}
+//	return c.loadCandlesFromDB(id, instrument.PriceStep, from, to)
+//}
+
+// Candles - Получение исторических свечей по uid инструмента
 func (c *CandlesStorage) Candles(id string, from, to time.Time) ([]*pb.HistoricCandle, error) {
-	instrument, ok := c.instruments[id]
+	allCandles, ok := c.candles[id]
 	if !ok {
 		return nil, fmt.Errorf("%v instrument not found, at first LoadCandlesHistory()", id)
 	}
-	return c.loadCandlesFromDB(id, instrument.PriceStep, from, to)
+	indexes := [2]int{}
+	times := [2]time.Time{from, to}
+	currIndex := 0
+	for i, candle := range allCandles {
+		if currIndex < 2 {
+			if candle.GetTime().AsTime().After(times[currIndex]) {
+				indexes[currIndex] = i
+				currIndex++
+			}
+		} else {
+			break
+		}
+	}
+	return allCandles[indexes[0]:indexes[1]], nil
+}
+
+// CandlesAll - Получение всех исторических свечей из хранилища по uid инструмента
+func (c *CandlesStorage) CandlesAll(uid string) ([]*pb.HistoricCandle, error) {
+	instrument, ok := c.instruments[uid]
+	if !ok {
+		return nil, fmt.Errorf("%v instrument not found, at first LoadCandlesHistory()", uid)
+	}
+
+	stmt, err := c.db.Preparex(`select * from candles where instrument_uid=?`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		err := stmt.Close()
+		if err != nil {
+			c.logger.Errorf(err.Error())
+		}
+	}()
+
+	rows, err := stmt.Queryx(uid)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		err := rows.Close()
+		if err != nil {
+			c.logger.Errorf(err.Error())
+		}
+	}()
+
+	dst := &CandleDB{}
+	candles := make([]*pb.HistoricCandle, 0)
+	for rows.Next() {
+		err = rows.StructScan(dst)
+		if err != nil {
+			return nil, err
+		}
+		if dst != nil {
+			candles = append(candles, &pb.HistoricCandle{
+				Open:       investgo.FloatToQuotation(dst.Open, instrument.PriceStep),
+				High:       investgo.FloatToQuotation(dst.High, instrument.PriceStep),
+				Low:        investgo.FloatToQuotation(dst.Low, instrument.PriceStep),
+				Close:      investgo.FloatToQuotation(dst.Close, instrument.PriceStep),
+				Volume:     int64(dst.Volume),
+				Time:       investgo.TimeToTimestamp(time.Unix(dst.Time, 0)),
+				IsComplete: dst.IsComplete == 1,
+			})
+		}
+	}
+	c.logger.Infof("%v %v candles downloaded from storage", uid, len(candles))
+
+	return candles, nil
 }
 
 // LoadCandlesHistory - Начальная загрузка исторических свечей для нового инструмента (from - now)
