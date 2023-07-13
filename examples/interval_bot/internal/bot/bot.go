@@ -33,9 +33,19 @@ type IntervalStrategyConfig struct {
 	StorageCandleInterval pb.CandleInterval
 	// StorageFromTime - Время, от которого будет хранилище будет загружать историю для новых инструментов
 	StorageFromTime time.Time
+	// StorageUpdate - Если true, то в хранилище обновятся все свечи до now
+	StorageUpdate bool
+	// DaysToCalculateInterval - Кол-ва дней на которых рассчитывается интервал для цен для торговли
+	DaysToCalculateInterval int
+	// StopLossPercent - Процент изменения, для стоп-лосс заявки
+	StopLossPercent float64
+	// AnalyseLowPercentile - Нижний перцентиль для расчета интервала
+	AnalyseLowPercentile float64
+	// AnalyseHighPercentile - Верхний перцентиль для расчета интервала
+	AnalyseHighPercentile float64
 }
 
-type interval struct {
+type Interval struct {
 	high, low float64
 }
 
@@ -80,7 +90,7 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 		}
 	}
 
-	storage, err := NewCandlesStorage(config.StorageDBPath, instrumentsForStorage, client.Logger, marketDataService)
+	storage, err := NewCandlesStorage(config.StorageDBPath, config.StorageUpdate, instrumentsForStorage, client.Logger, marketDataService)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -133,7 +143,7 @@ func (b *Bot) Run() error {
 	}
 
 	// берем первые топ TopInstrumentsQuantity инструментов по волатильности
-	topInstrumentsIntervals := make(map[string]interval, b.StrategyConfig.TopInstrumentsQuantity)
+	topInstrumentsIntervals := make(map[string]Interval, b.StrategyConfig.TopInstrumentsQuantity)
 	topInstrumentsIds := make([]string, 0, b.StrategyConfig.TopInstrumentsQuantity)
 
 	if b.StrategyConfig.TopInstrumentsQuantity > len(analyseResult) {
@@ -259,7 +269,7 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 
 type analyseResponse struct {
 	id            string
-	interval      interval
+	interval      Interval
 	volatilityMax float64
 }
 
@@ -284,7 +294,7 @@ func (b *Bot) analyseCandles(id string, candles []*pb.HistoricCandle) (*analyseR
 		return nil, fmt.Errorf("%v min price increment not found", id)
 	}
 	// maxVol - Кол-во пересечений с модой
-	i, maxVol := b.findInterval(mode, instr.minPriceInc, candles)
+	i, maxVol := b.findFixedInterval(mode, instr.minPriceInc, candles)
 	return &analyseResponse{
 		id:            id,
 		interval:      i,
@@ -299,19 +309,21 @@ func (b *Bot) analyseCandlesByMathStat(id string, candles []*pb.HistoricCandle) 
 	for _, candle := range candles {
 		midPrices = append(midPrices, midPrice(candle))
 	}
+	// вычисляем медиану средних цен
 	median, err := stats.Median(midPrices)
 	if err != nil {
 		return nil, err
 	}
-	low, err := stats.Percentile(midPrices, 5)
+	// берем квантили распределения средних цен до и после медианы
+	low, err := stats.Percentile(midPrices, b.StrategyConfig.AnalyseLowPercentile)
 	if err != nil {
 		return nil, err
 	}
-	high, err := stats.Percentile(midPrices, 95)
+	high, err := stats.Percentile(midPrices, b.StrategyConfig.AnalyseHighPercentile)
 	if err != nil {
 		return nil, err
 	}
-	i := interval{
+	i := Interval{
 		high: high,
 		low:  low,
 	}
@@ -321,6 +333,11 @@ func (b *Bot) analyseCandlesByMathStat(id string, candles []*pb.HistoricCandle) 
 	}
 	// maxVol - Кол-во пересечений с медианой
 	maxVol := crosses(floatToQuotation(median, instr.minPriceInc).ToFloat(), candles)
+	// если интервал меньше чем минимальный профит, то не используем этот инструмент
+	if (i.high-i.low)/median*100 < b.StrategyConfig.MinProfit {
+		maxVol = 0
+	}
+
 	return &analyseResponse{
 		id:            id,
 		interval:      i,
@@ -333,8 +350,8 @@ func midPrice(c *pb.HistoricCandle) float64 {
 	return (c.GetHigh().ToFloat() + c.GetLow().ToFloat() + c.GetClose().ToFloat() + c.GetOpen().ToFloat()) / 4
 }
 
-// findInterval - Поиск интервала
-func (b *Bot) findInterval(mode float64, inc *pb.Quotation, candles []*pb.HistoricCandle) (interval, float64) {
+// findFixedInterval - Расчет интервала цены для инструмента по минимальному профиту и волатильность для этого интервала
+func (b *Bot) findFixedInterval(mode float64, inc *pb.Quotation, candles []*pb.HistoricCandle) (Interval, float64) {
 	// минимальный профит в валюте / шаг цены = начальное кол-во шагов цены в интервале
 	k := int(math.Round((mode * b.StrategyConfig.MinProfit / 100) / inc.ToFloat()))
 	mode = floatToQuotation(mode, inc).ToFloat()
@@ -354,45 +371,15 @@ func (b *Bot) findInterval(mode float64, inc *pb.Quotation, candles []*pb.Histor
 			upper = upper - inc.ToFloat()
 		}
 	}
-
-	// volatility = maxCrosses * (width/median * 100)
-	var initialVolatility, volatility, delta float64
 	maxCrosses = intervalCrosses(upper, lower, candles)
-	initialVolatility = ((upper - lower) / mode * 100) * float64(maxCrosses)
-	volatility = initialVolatility
 
-	for {
-		u, l := upper, lower
-		mc := maxCrosses
-		upper = upper + inc.ToFloat()
-		lower = lower - inc.ToFloat()
-
-		upperCrosses := crosses(upper, candles)
-		lowerCrosses := crosses(lower, candles)
-
-		if upperCrosses > lowerCrosses {
-			lower = lower + inc.ToFloat()
-		} else {
-			upper = upper - inc.ToFloat()
-		}
-		maxCrosses = intervalCrosses(upper, lower, candles)
-		tempVolatility := ((upper - lower) / mode * 100) * float64(maxCrosses)
-
-		delta = tempVolatility - volatility
-		volatility = tempVolatility
-		if delta < 0 {
-			upper, lower = u, l
-			maxCrosses = mc
-			volatility = ((upper - lower) / mode * 100) * float64(maxCrosses)
-			break
-		}
-	}
-	return interval{
+	return Interval{
 		high: upper,
 		low:  lower,
-	}, volatility
+	}, ((upper - lower) / mode * 100) * float64(maxCrosses)
 }
 
+// intervalCrosses - Количество пересечений интервала от l до h и свечей candles
 func intervalCrosses(h, l float64, candles []*pb.HistoricCandle) (count int64) {
 	for _, candle := range candles {
 		if h <= candle.GetHigh().ToFloat() && l >= candle.GetLow().ToFloat() {
@@ -445,19 +432,40 @@ func timeIntervalByDays(reqDays int, now time.Time) (from time.Time, to time.Tim
 	return from, to
 }
 
-func (b *Bot) BackTest() (float64, error) {
-	// качаем свечи за 3 дня
-	now := time.Now().Add(-48 * time.Hour)
+// AnalyseType - Тип анализа исторических свечей при расчете интервала
+type AnalyseType int
+
+const (
+	MathStat AnalyseType = iota
+	MinProfit
+)
+
+type BacktestConfig struct {
+	// Analyse - Тип анализа исторических свечей при расчете интервала
+	Analyse AnalyseType
+	// LowPercent - Для анализа типа MathStat нижний перцентиль для расчета интервала
+	LowPercentile float64
+	// HighPercentile - Для анализа типа MathStat верхний перцентиль для расчета интервала
+	HighPercentile float64
+	// MinProfit - Минимальный профит для рассчета, с которым рассчитывается интервал
+	MinProfit float64
+}
+
+// BackTest - Проверка стратегии на исторических данных
+func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, error) {
+	switch bc.Analyse {
+	case MathStat:
+		b.StrategyConfig.AnalyseLowPercentile = bc.LowPercentile
+		b.StrategyConfig.AnalyseHighPercentile = bc.HighPercentile
+		b.StrategyConfig.MinProfit = bc.MinProfit
+	case MinProfit:
+		b.StrategyConfig.MinProfit = bc.MinProfit
+	}
 
 	// загружаем минутные свечи по всем инструментам для анализа волатильности
-	from, to := timeIntervalByDays(3, now.Add(-24*time.Hour))
-	for _, instrument := range b.StrategyConfig.Instruments {
-		err := b.storage.UpdateCandlesHistory(instrument)
-		if err != nil {
-			return 0, err
-		}
-	}
-	// считаем на трех дня
+	from, to := timeIntervalByDays(b.StrategyConfig.DaysToCalculateInterval, start)
+	fmt.Printf("Start backtest day =%v from = %v to = %v\n", start, from, to)
+	// считаем на DaysToCalculateInterval днях
 	// отбор топ инструментов по волатильности
 	// результаты анализа
 	analyseResult := make([]*analyseResponse, 0, len(b.StrategyConfig.Instruments))
@@ -467,11 +475,29 @@ func (b *Bot) BackTest() (float64, error) {
 		tempId := id
 		hc, err := b.storage.Candles(tempId, from, to)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
-		resp, err := b.analyseCandlesByMathStat(tempId, hc)
+		// если нет свечей для инструмента, волатильность = 0
+		var resp *analyseResponse
+		if len(hc) == 0 {
+			resp = &analyseResponse{
+				id: id,
+				interval: Interval{
+					high: 0,
+					low:  0,
+				},
+				volatilityMax: 0,
+			}
+		} else {
+			switch bc.Analyse {
+			case MathStat:
+				resp, err = b.analyseCandlesByMathStat(tempId, hc)
+			case MinProfit:
+				resp, err = b.analyseCandles(tempId, hc)
+			}
+		}
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		analyseResult = append(analyseResult, resp)
 	}
@@ -481,17 +507,12 @@ func (b *Bot) BackTest() (float64, error) {
 		return analyseResult[i].volatilityMax > analyseResult[j].volatilityMax
 	})
 
-	for _, response := range analyseResult {
-		fmt.Printf("vol = %v h/l = %.9f %.9f id = %v\n", response.volatilityMax, response.interval.high,
-			response.interval.low, response.id)
-	}
-
 	// берем первые топ TopInstrumentsQuantity инструментов по волатильности
-	topInstrumentsIntervals := make(map[string]interval, b.StrategyConfig.TopInstrumentsQuantity)
+	topInstrumentsIntervals := make(map[string]Interval, b.StrategyConfig.TopInstrumentsQuantity)
 	topInstrumentsIds := make([]string, 0, b.StrategyConfig.TopInstrumentsQuantity)
 
 	if b.StrategyConfig.TopInstrumentsQuantity > len(analyseResult) {
-		return 0, fmt.Errorf("TopInstrumentsQuantity = %v, but max value = %v\n",
+		return 0, 0, fmt.Errorf("TopInstrumentsQuantity = %v, but max value = %v\n",
 			b.StrategyConfig.TopInstrumentsQuantity, len(analyseResult))
 	}
 
@@ -500,45 +521,140 @@ func (b *Bot) BackTest() (float64, error) {
 		topInstrumentsIntervals[r.id] = r.interval
 		topInstrumentsIds = append(topInstrumentsIds, r.id)
 	}
-	// проверяем на 4ом
-	from, to = timeIntervalByDays(1, now)
+	// начальная сумма для открытия позиций по отобранным инструментам
 	var requiredMoneyForStart float64
-
-	for _, id := range topInstrumentsIds {
-		currentInterval := topInstrumentsIntervals[id]
-		lot := b.executor.instruments[id].lot
-
-		requiredMoneyForStart += currentInterval.low * float64(lot)
-	}
-
-	var totalProfit float64
-
-	for _, id := range topInstrumentsIds {
-		yesterdayCandles, err := b.storage.Candles(id, from, to)
-		if err != nil {
-			return 0, err
+	for id, i := range topInstrumentsIntervals {
+		currInstrument, ok := b.executor.instruments[id]
+		if !ok {
+			return 0, 0, fmt.Errorf("%v not found in executor map\n", id)
 		}
+		requiredMoneyForStart += i.low * float64(currInstrument.lot) * float64(currInstrument.quantity)
+	}
+	fmt.Printf("RequiredMoneyForStart = %.3f\n", requiredMoneyForStart)
+
+	// проверяем на start дне
+	var totalProfit, instrumentProfit float64
+	for id, interval := range topInstrumentsIntervals {
+		fmt.Printf("Start trading with %v, high = %.9f, low = %.9f\n", id, interval.high, interval.low)
+		todayCandles, err := b.storage.Candles(id, start, start.Add(time.Hour*24))
+		if err != nil {
+			return 0, 0, err
+		}
+
 		inStock := false
-		currentInterval := topInstrumentsIntervals[id]
-		delta := currentInterval.high - currentInterval.low
-		lot := b.executor.instruments[id].lot
-		for _, candle := range yesterdayCandles {
+		// ширина интервала или разница в цене инструмента
+		delta := interval.high - interval.low
+		// выражение фиксируемого убытка в разнице цены инструмента
+		loss := interval.low * (b.StrategyConfig.StopLossPercent / 100)
+		// цена, по которой нужно фиксировать убытки
+		lossPrice := interval.low - loss
+		currInstrument, ok := b.executor.instruments[id]
+		if !ok {
+			return 0, 0, fmt.Errorf("%v not found in executor map\n", id)
+		}
+		// идем по сегодняшним свечам инструмента
+		for i, candle := range todayCandles {
+			// последняя свеча этого дня
+			lastCandle := todayCandles[len(todayCandles)-1]
+			// если позиция открыта
 			if inStock {
-				if currentInterval.high <= candle.GetHigh().ToFloat() {
+				switch {
+				// штатный случай продажи
+				case interval.high <= candle.GetHigh().ToFloat():
 					// могли бы продать
-					totalProfit += delta * float64(lot)
+					b.Client.Logger.Infof("sell with candle high = %.3f, low = %.3f", candle.GetHigh().ToFloat(), candle.GetLow().ToFloat())
+					// обычный профит от сделки = ширина интервала * лотность * кол-во лотов
+					p := delta * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					b.Client.Logger.Infof("default sell profit = %.3f in percent = %.3f", p, delta/interval.low*100)
+					instrumentProfit += p
+					inStock = false
+					// если сработал стоп-лосс, продаем и заканчиваем
+				case candle.GetLow().ToFloat() <= lossPrice:
+					tempLoss := -loss * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					instrumentProfit += tempLoss
+					b.Client.Logger.Infof("stop loss, loss = %.3f in percent = %.3f", tempLoss, -b.StrategyConfig.StopLossPercent)
+					inStock = false
+					break
+					// если это последняя свеча на сегодня
+				case i == len(todayCandles)-1:
+					p := (interval.low - lastCandle.GetClose().ToFloat()) * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					instrumentProfit += p
+					b.Client.Logger.Infof("last day sell out, profit = %.3f in percent = %.3f", p, (interval.low-lastCandle.GetClose().ToFloat())/interval.low*100)
 					inStock = false
 				}
 			} else {
-				if currentInterval.low >= candle.GetLow().ToFloat() {
+				// покупаем только если интервал полностью пересекает свечу
+				if interval.low >= candle.GetLow().ToFloat() && interval.high <= candle.GetHigh().ToFloat() {
 					// могли бы купить
 					inStock = true
+					b.Client.Logger.Infof("buy with candle high = %.3f, low = %.3f", candle.GetHigh().ToFloat(), candle.GetLow().ToFloat())
 				}
 			}
 		}
+		fmt.Printf("Stop trading with %v, instock = %v, profit = %.9f\n", id, inStock, instrumentProfit)
+		totalProfit += instrumentProfit
+		instrumentProfit = 0
 	}
 
-	b.Client.Logger.Infof("profit in percent = %.9f", (totalProfit/requiredMoneyForStart)*100)
-
-	return totalProfit, nil
+	return totalProfit, (totalProfit / requiredMoneyForStart) * 100, nil
 }
+
+//// findInterval - Поиск интервала
+//func (b *Bot) findInterval(mode float64, inc *pb.Quotation, candles []*pb.HistoricCandle) (Interval, float64) {
+//	// минимальный профит в валюте / шаг цены = начальное кол-во шагов цены в интервале
+//	k := int(math.Round((mode * b.StrategyConfig.MinProfit / 100) / inc.ToFloat()))
+//	mode = floatToQuotation(mode, inc).ToFloat()
+//
+//	upper, lower := mode, mode
+//	var maxCrosses int64
+//	for i := 1; i <= k; i++ {
+//		upper = upper + inc.ToFloat()
+//		lower = lower - inc.ToFloat()
+//
+//		upperCrosses := crosses(upper, candles)
+//		lowerCrosses := crosses(lower, candles)
+//
+//		if upperCrosses > lowerCrosses {
+//			lower = lower + inc.ToFloat()
+//		} else {
+//			upper = upper - inc.ToFloat()
+//		}
+//	}
+//
+//	// volatility = maxCrosses * (width/median * 100)
+//	var initialVolatility, volatility, delta float64
+//	maxCrosses = intervalCrosses(upper, lower, candles)
+//	initialVolatility = ((upper - lower) / mode * 100) * float64(maxCrosses)
+//	volatility = initialVolatility
+//
+//	for {
+//		u, l := upper, lower
+//		mc := maxCrosses
+//		upper = upper + inc.ToFloat()
+//		lower = lower - inc.ToFloat()
+//
+//		upperCrosses := crosses(upper, candles)
+//		lowerCrosses := crosses(lower, candles)
+//
+//		if upperCrosses > lowerCrosses {
+//			lower = lower + inc.ToFloat()
+//		} else {
+//			upper = upper - inc.ToFloat()
+//		}
+//		maxCrosses = intervalCrosses(upper, lower, candles)
+//		tempVolatility := ((upper - lower) / mode * 100) * float64(maxCrosses)
+//
+//		delta = tempVolatility - volatility
+//		volatility = tempVolatility
+//		if delta < 0 {
+//			upper, lower = u, l
+//			maxCrosses = mc
+//			volatility = ((upper - lower) / mode * 100) * float64(maxCrosses)
+//			break
+//		}
+//	}
+//	return Interval{
+//		high: upper,
+//		low:  lower,
+//	}, ((upper - lower) / mode * 100) * float64(maxCrosses)
+//}
