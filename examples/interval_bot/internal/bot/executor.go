@@ -77,22 +77,22 @@ type Instrument struct {
 
 type intervals struct {
 	mx sync.Mutex
-	i  map[string]interval
+	i  map[string]Interval
 }
 
-func newIntervals(i map[string]interval) *intervals {
+func newIntervals(i map[string]Interval) *intervals {
 	return &intervals{
 		i: i,
 	}
 }
 
-func (i *intervals) update(id string, inter interval) {
+func (i *intervals) update(id string, inter Interval) {
 	i.mx.Lock()
 	i.i[id] = inter
 	i.mx.Unlock()
 }
 
-func (i *intervals) get(id string) (interval, bool) {
+func (i *intervals) get(id string) (Interval, bool) {
 	i.mx.Lock()
 	defer i.mx.Unlock()
 	inter, ok := i.i[id]
@@ -139,7 +139,7 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 }
 
 // Start - Запуск отслеживания инструментов и непрерывное выставление лимитных заявок по интервалам
-func (e *Executor) Start(i map[string]interval) error {
+func (e *Executor) Start(i map[string]Interval) error {
 	err := e.updatePositionsUnary()
 	if err != nil {
 		return err
@@ -393,7 +393,7 @@ func (p *Positions) Get() *pb.PositionData {
 }
 
 // UpdateInterval - Обновление интервала для инструмента и замена заявки, если понадобится
-func (e *Executor) UpdateInterval(id string, i interval) error {
+func (e *Executor) UpdateInterval(id string, i Interval) error {
 	oldInterval, ok := e.intervals.get(id)
 	if !ok {
 		return fmt.Errorf("%v interval not found\n", id)
