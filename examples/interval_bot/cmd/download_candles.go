@@ -140,8 +140,8 @@ create table if not exists candles (
 );
 
 create table if not exists updates (
-   instrument_id text,
-   time integer
+  instrument_id text unique,
+  time integer
 );
 `
 
@@ -199,7 +199,7 @@ func storeCandlesInDB(db *sqlx.DB, uid string, update time.Time, hc []*pb.Histor
 	}
 
 	// записываем в базу время последнего обновления
-	_, err = db.Exec(`insert into updates(instrument_id, time) values (?, ?)`, uid, update.Unix())
+	_, err = db.Exec(`insert or replace into updates(instrument_id, time) values (?, ?)`, uid, update.Unix())
 	if err != nil {
 		return err
 	}
