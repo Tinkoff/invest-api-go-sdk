@@ -105,19 +105,20 @@ func main() {
 
 	// для каждого инструмента запрашиваем свечи и сохраняем в бд
 	mds := client.NewMarketDataServiceClient()
+	now := time.Now()
 	for _, id := range instrumentIds {
 		candles, err := mds.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
 			Instrument: id,
 			Interval:   pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
 			From:       time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
-			To:         time.Now(),
+			To:         now,
 			File:       false,
 			FileName:   "",
 		})
 
 		logger.Infof("got %v candles for %v", len(candles), id)
 
-		err = storeCandlesInDB(db, id, candles)
+		err = storeCandlesInDB(db, id, now, candles)
 		if err != nil {
 			logger.Errorf(err.Error())
 		}
@@ -127,8 +128,8 @@ func main() {
 
 var schema = `
 create table if not exists candles (
-    id integer primary key autoincrement,
-    instrument_uid text,
+   id integer primary key autoincrement,
+   instrument_uid text,
 	open real,
 	close real,
 	high real,
@@ -136,6 +137,11 @@ create table if not exists candles (
 	volume integer,
 	time integer,
 	is_complete integer
+);
+
+create table if not exists updates (
+   instrument_id text,
+   time integer
 );
 `
 
@@ -145,19 +151,18 @@ func initDB(path string) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-
 	if _, err = db.Exec(schema); err != nil {
 		return nil, err
 	}
+	log.Printf("database initialized")
 	return db, nil
 }
 
 // storeCandlesInDB - Сохранение исторических свечей инструмента в бд
-func storeCandlesInDB(db *sqlx.DB, uid string, hc []*pb.HistoricCandle) error {
+func storeCandlesInDB(db *sqlx.DB, uid string, update time.Time, hc []*pb.HistoricCandle) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -168,7 +173,7 @@ func storeCandlesInDB(db *sqlx.DB, uid string, hc []*pb.HistoricCandle) error {
 		}
 	}()
 
-	insertCandle, err := tx.Prepare(`insert into candles (instrument_uid, open, close, high, low, volume, time, is_complete) 
+	insertCandle, err := tx.Prepare(`insert into candles (instrument_uid, open, close, high, low, volume, time, is_complete)
 		values (?, ?, ?, ?, ?, ?, ?, ?) `)
 	if err != nil {
 		return err
@@ -192,5 +197,12 @@ func storeCandlesInDB(db *sqlx.DB, uid string, hc []*pb.HistoricCandle) error {
 			return err
 		}
 	}
+
+	// записываем в базу время последнего обновления
+	_, err = db.Exec(`insert into updates(instrument_id, time) values (?, ?)`, uid, update.Unix())
+	if err != nil {
+		return err
+	}
+	log.Printf("%v %v candles uploaded in storage", uid, len(hc))
 	return nil
 }
