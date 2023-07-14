@@ -270,7 +270,8 @@ func (c *CandlesStorage) lastUpdates() error {
 		}
 		instrument, ok := c.instruments[tempId]
 		if !ok {
-			return fmt.Errorf("%v not found in storage instruments map\n", tempId)
+			// этот инструмент из базы нам сейчас не нужен
+			continue
 		}
 		instrument.LastUpdate = time.Unix(lastUpdUnix, 0)
 		c.instruments[tempId] = instrument
