@@ -39,9 +39,9 @@ type IntervalStrategyConfig struct {
 	DaysToCalculateInterval int
 	// StopLossPercent - Процент изменения, для стоп-лосс заявки
 	StopLossPercent float64
-	// AnalyseLowPercentile - Нижний перцентиль для расчета интервала
+	// AnalyseLowPercentile - Нижний процентиль для расчета интервала
 	AnalyseLowPercentile float64
-	// AnalyseHighPercentile - Верхний перцентиль для расчета интервала
+	// AnalyseHighPercentile - Верхний процентиль для расчета интервала
 	AnalyseHighPercentile float64
 }
 
@@ -118,10 +118,14 @@ func (b *Bot) Run() error {
 	// результаты анализа
 	analyseResult := make([]*analyseResponse, 0, len(b.StrategyConfig.Instruments))
 
+	// интервал запроса свечей по инструментам для нахождения интервала
+	// далее раз в IntervalUpdateDelay будут запрашиваться новые свечи
+	from, to := timeIntervalByDays(b.StrategyConfig.DaysToCalculateInterval, time.Now())
+
 	// запуск анализа инструментов по их историческим свечам
 	for _, id := range b.StrategyConfig.Instruments {
 		tempId := id
-		hc, err := b.storage.Candles(tempId, time.Now(), time.Now())
+		hc, err := b.storage.Candles(tempId, from, to)
 		if err != nil {
 			return err
 		}
@@ -174,7 +178,7 @@ func (b *Bot) Run() error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				err := b.UpdateIntervals(topInstrumentsIds)
+				err := b.UpdateIntervals(from, topInstrumentsIds)
 				if err != nil {
 					b.Client.Logger.Errorf(err.Error())
 				}
@@ -192,6 +196,11 @@ func (b *Bot) Run() error {
 		return err
 	}
 
+	// Закрываем хранилище
+	err = b.storage.Close()
+	if err != nil {
+		return err
+	}
 	wg.Wait()
 	return nil
 }
@@ -200,14 +209,15 @@ func (b *Bot) Stop() {
 	b.cancelBot()
 }
 
-func (b *Bot) UpdateIntervals(ids []string) error {
+func (b *Bot) UpdateIntervals(from time.Time, ids []string) error {
 	for _, id := range ids {
+		now := time.Now()
 		// обновляем историю по инструменту
 		err := b.storage.UpdateCandlesHistory(id)
 		if err != nil {
 			return err
 		}
-		candles, err := b.storage.Candles(id, time.Now(), time.Now())
+		candles, err := b.storage.Candles(id, from, now)
 		if err != nil {
 			return err
 		}
@@ -553,7 +563,12 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 			return 0, 0, fmt.Errorf("%v not found in executor map\n", id)
 		}
 		// идем по сегодняшним свечам инструмента
+		stopTradingToday := false
 		for i, candle := range todayCandles {
+			if stopTradingToday {
+				stopTradingToday = false
+				break
+			}
 			// последняя свеча этого дня
 			lastCandle := todayCandles[len(todayCandles)-1]
 			// если позиция открыта
@@ -568,23 +583,24 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 					b.Client.Logger.Infof("default sell profit = %.3f in percent = %.3f", p, delta/interval.low*100)
 					instrumentProfit += p
 					inStock = false
-					// если сработал стоп-лосс, продаем и заканчиваем
+					// если сработал стоп-лосс, продаем и заканчиваем торги на сегодня
 				case candle.GetLow().ToFloat() <= lossPrice:
 					tempLoss := -loss * float64(currInstrument.lot) * float64(currInstrument.quantity)
 					instrumentProfit += tempLoss
 					b.Client.Logger.Infof("stop loss, loss = %.3f in percent = %.3f", tempLoss, -b.StrategyConfig.StopLossPercent)
 					inStock = false
-					break
+					stopTradingToday = true
 					// если это последняя свеча на сегодня
 				case i == len(todayCandles)-1:
-					p := (interval.low - lastCandle.GetClose().ToFloat()) * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					p := (lastCandle.GetClose().ToFloat() - interval.low) * float64(currInstrument.lot) * float64(currInstrument.quantity)
 					instrumentProfit += p
-					b.Client.Logger.Infof("last day sell out, profit = %.3f in percent = %.3f", p, (interval.low-lastCandle.GetClose().ToFloat())/interval.low*100)
+					b.Client.Logger.Infof("last day sell out, profit = %.3f in percent = %.3f", p, (lastCandle.GetClose().ToFloat()-interval.low)/interval.low*100)
 					inStock = false
 				}
 			} else {
-				// покупаем только если интервал полностью пересекает свечу
-				if interval.low >= candle.GetLow().ToFloat() && interval.high <= candle.GetHigh().ToFloat() {
+				// предполагаем что лимитная заявка исполнится если цена поручения выше минимальной в этой свече
+				if interval.low >= candle.GetLow().ToFloat() {
+					// if interval.low >= candle.GetLow().ToFloat() && interval.high <= candle.GetHigh().ToFloat() {
 					// могли бы купить
 					inStock = true
 					b.Client.Logger.Infof("buy with candle high = %.3f, low = %.3f", candle.GetHigh().ToFloat(), candle.GetLow().ToFloat())
