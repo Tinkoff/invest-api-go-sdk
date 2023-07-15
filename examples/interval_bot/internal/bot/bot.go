@@ -17,8 +17,10 @@ import (
 type IntervalStrategyConfig struct {
 	// Instruments - слайс идентификаторов инструментов
 	Instruments []string
-	// Quantity - Начальное кол-во лотов для покупки
-	Quantity int64
+	// PreferredPositionPrice - Предпочтительная стоимость открытия позиции в валюте
+	PreferredPositionPrice float64
+	// MaxPositionPrice - Максимальная стоимость открытия позиции в валюте
+	MaxPositionPrice float64
 	// MinProfit - Минимальный процент выгоды, с которым можно совершать сделки
 	MinProfit float64
 	// IntervalUpdateDelay - Время ожидания для перерасчета интервала цены
@@ -62,22 +64,21 @@ type Bot struct {
 
 func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrategyConfig) (*Bot, error) {
 	botCtx, cancel := context.WithCancel(ctx)
-
 	// по конфигу стратегии заполняем map для executor
 	instrumentService := client.NewInstrumentsServiceClient()
 	marketDataService := client.NewMarketDataServiceClient()
-	instruments := make(map[string]Instrument, len(config.Instruments))
+	// инструменты для исполнителя
+	instrumentsForExecutor := make(map[string]Instrument, len(config.Instruments))
+	// инструменты для хранилища
 	instrumentsForStorage := make(map[string]StorageInstrument, len(config.Instruments))
-
 	for _, instrument := range config.Instruments {
-		// в данном случае ключ это uid, поэтому используем LotByUid()
+		// в данном случае ключ это uid, поэтому используем InstrumentByUid()
 		resp, err := instrumentService.InstrumentByUid(instrument)
 		if err != nil {
 			cancel()
 			return nil, err
 		}
-		instruments[instrument] = Instrument{
-			quantity:    config.Quantity,
+		instrumentsForExecutor[instrument] = Instrument{
 			entryPrice:  0,
 			lot:         resp.GetInstrument().GetLot(),
 			currency:    resp.GetInstrument().GetCurrency(),
@@ -89,7 +90,40 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 			LastUpdate:     config.StorageFromTime,
 		}
 	}
-
+	// получаем последние цены по инструментам, слишком дорогие отбрасываем,
+	// а для остальных подбираем оптимальное кол-во лотов, чтобы стоимость открытия позиции была близка к желаемой
+	// подходящие инструменты
+	preferredInstruments := make([]string, 0, len(config.Instruments))
+	resp, err := marketDataService.GetLastPrices(config.Instruments)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	lp := resp.GetLastPrices()
+	for _, lastPrice := range lp {
+		uid := lastPrice.GetInstrumentUid()
+		instrument := instrumentsForExecutor[uid]
+		// если цена одного лота слишком велика, отбрасываем этот инструмент
+		if lastPrice.GetPrice().ToFloat()*float64(instrument.lot) > config.MaxPositionPrice {
+			delete(instrumentsForExecutor, uid)
+			delete(instrumentsForStorage, uid)
+			continue
+		}
+		// добавляем в список подходящих инструментов
+		preferredInstruments = append(preferredInstruments, uid)
+		// если цена 1 лота меньше предпочтительной цены, меняем quantity
+		if lastPrice.GetPrice().ToFloat()*float64(instrument.lot) < config.PreferredPositionPrice {
+			preferredQuantity := math.Floor(config.PreferredPositionPrice / (float64(instrument.lot) * lastPrice.GetPrice().ToFloat()))
+			instrument.quantity = int64(preferredQuantity)
+			instrumentsForExecutor[uid] = instrument
+		} else {
+			instrument.quantity = 1
+			instrumentsForExecutor[uid] = instrument
+		}
+	}
+	// меняем инструменты в конфиге
+	config.Instruments = preferredInstruments
+	// создаем хранилище для свечей
 	storage, err := NewCandlesStorage(config.StorageDBPath, config.StorageUpdate, instrumentsForStorage, client.Logger, marketDataService)
 	if err != nil {
 		cancel()
@@ -100,7 +134,7 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 		Client:         client,
 		ctx:            botCtx,
 		cancelBot:      cancel,
-		executor:       NewExecutor(ctx, client, instruments),
+		executor:       NewExecutor(ctx, client, instrumentsForExecutor),
 		storage:        storage,
 	}, nil
 }
