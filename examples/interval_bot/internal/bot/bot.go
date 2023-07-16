@@ -37,9 +37,9 @@ type IntervalStrategyConfig struct {
 	StorageFromTime time.Time
 	// StorageUpdate - Если true, то в хранилище обновятся все свечи до now
 	StorageUpdate bool
-	// DaysToCalculateInterval - Кол-ва дней на которых рассчитывается интервал для цен для торговли
+	// DaysToCalculateInterval - Кол-во дней, на которых рассчитывается интервал цен для торговли
 	DaysToCalculateInterval int
-	// StopLossPercent - Процент изменения, для стоп-лосс заявки
+	// StopLossPercent - Процент изменения цены, для стоп-лосс заявки
 	StopLossPercent float64
 	// AnalyseLowPercentile - Нижний процентиль для расчета интервала
 	AnalyseLowPercentile float64
@@ -493,17 +493,27 @@ type BacktestConfig struct {
 	HighPercentile float64
 	// MinProfit - Минимальный профит для рассчета, с которым рассчитывается интервал
 	MinProfit float64
+	// StopLoss - Процент убытка для выставления стоп-лосс заявки
+	StopLoss float64
+	// DaysToCalculateInterval - Кол-во дней на которых рассчитывается интервал для цен для торговли
+	DaysToCalculateInterval int
 }
 
 // BackTest - Проверка стратегии на исторических данных
 func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, error) {
+	// по конфигу бектеста меняются конфигурация стратегии
 	switch bc.Analyse {
 	case MathStat:
 		b.StrategyConfig.AnalyseLowPercentile = bc.LowPercentile
 		b.StrategyConfig.AnalyseHighPercentile = bc.HighPercentile
+
 		b.StrategyConfig.MinProfit = bc.MinProfit
+		b.StrategyConfig.StopLossPercent = bc.StopLoss
+		b.StrategyConfig.DaysToCalculateInterval = bc.DaysToCalculateInterval
 	case MinProfit:
 		b.StrategyConfig.MinProfit = bc.MinProfit
+		b.StrategyConfig.StopLossPercent = bc.StopLoss
+		b.StrategyConfig.DaysToCalculateInterval = bc.DaysToCalculateInterval
 	}
 
 	// загружаем минутные свечи по всем инструментам для анализа волатильности
@@ -584,18 +594,17 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 		if err != nil {
 			return 0, 0, err
 		}
-
+		currInstrument, ok := b.executor.instruments[id]
+		if !ok {
+			return 0, 0, fmt.Errorf("%v not found in executor map\n", id)
+		}
 		inStock := false
 		// ширина интервала или разница в цене инструмента
 		delta := interval.high - interval.low
 		// выражение фиксируемого убытка в разнице цены инструмента
 		loss := interval.low * (b.StrategyConfig.StopLossPercent / 100)
 		// цена, по которой нужно фиксировать убытки
-		lossPrice := interval.low - loss
-		currInstrument, ok := b.executor.instruments[id]
-		if !ok {
-			return 0, 0, fmt.Errorf("%v not found in executor map\n", id)
-		}
+		lossPrice := floatToQuotation(interval.low-loss, currInstrument.minPriceInc).ToFloat()
 		// идем по сегодняшним свечам инструмента
 		stopTradingToday := false
 		for i, candle := range todayCandles {
