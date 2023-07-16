@@ -497,6 +497,8 @@ type BacktestConfig struct {
 	StopLoss float64
 	// DaysToCalculateInterval - Кол-во дней на которых рассчитывается интервал для цен для торговли
 	DaysToCalculateInterval int
+	// Commission - Комиссия за 1 сделку в процентах
+	Commission float64
 }
 
 // BackTest - Проверка стратегии на исторических данных
@@ -626,12 +628,14 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 					b.Client.Logger.Infof("default sell profit = %.3f in percent = %.3f", p, delta/interval.low*100)
 					instrumentProfit += p
 					inStock = false
+					instrumentProfit -= interval.high * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
 					// если сработал стоп-лосс, продаем и заканчиваем торги на сегодня
 				case candle.GetLow().ToFloat() <= lossPrice:
 					tempLoss := -loss * float64(currInstrument.lot) * float64(currInstrument.quantity)
 					instrumentProfit += tempLoss
 					b.Client.Logger.Infof("stop loss, loss = %.3f in percent = %.3f", tempLoss, -b.StrategyConfig.StopLossPercent)
 					inStock = false
+					instrumentProfit -= interval.high * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
 					stopTradingToday = true
 					// если это последняя свеча на сегодня
 				case i == len(todayCandles)-1:
@@ -639,13 +643,15 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 					instrumentProfit += p
 					b.Client.Logger.Infof("last day sell out, profit = %.3f in percent = %.3f", p, (lastCandle.GetClose().ToFloat()-interval.low)/interval.low*100)
 					inStock = false
+					instrumentProfit -= interval.high * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
 				}
 			} else {
 				// предполагаем что лимитная заявка исполнится если цена поручения выше минимальной в этой свече
-				if interval.low >= candle.GetLow().ToFloat() {
+				if interval.low >= candle.GetLow().ToFloat() && i < len(todayCandles)-1 {
 					// if interval.low >= candle.GetLow().ToFloat() && interval.high <= candle.GetHigh().ToFloat() {
 					// могли бы купить
 					inStock = true
+					instrumentProfit -= interval.low * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
 					b.Client.Logger.Infof("buy with candle high = %.3f, low = %.3f", candle.GetHigh().ToFloat(), candle.GetLow().ToFloat())
 				}
 			}
