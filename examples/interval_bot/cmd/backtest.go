@@ -191,10 +191,10 @@ func TestWithMultipleConfigs(b *bot.Bot, logger investgo.Logger, start, stop tim
 	stopLoss := 0.4
 	daysTocalculate := 1
 	// простым перебором генерируем конфиги с разными значениями
-	for stopLoss < 2 {
+	for stopLoss < 1.5 {
 		for daysTocalculate < 7 {
 			minProfit := 0.2
-			for minProfit < 1.2 {
+			for minProfit < 1 {
 				bc = append(bc, bot.BacktestConfig{
 					Analyse:                 bot.MinProfit,
 					LowPercentile:           0,
@@ -202,6 +202,7 @@ func TestWithMultipleConfigs(b *bot.Bot, logger investgo.Logger, start, stop tim
 					MinProfit:               minProfit,
 					StopLoss:                stopLoss,
 					DaysToCalculateInterval: daysTocalculate,
+					Commission:              0.05,
 				})
 				minProfit += 0.1
 			}
