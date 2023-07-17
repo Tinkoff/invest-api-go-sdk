@@ -620,8 +620,8 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 			case MathStat:
 				resp, err = b.analyseCandlesByMathStat(tempId, hc)
 			case MinProfit:
-				// resp, err = b.analyseCandles(tempId, hc)
-				resp, err = b.analyseCandlesSimplest(tempId, hc)
+				resp, err = b.analyseCandles(tempId, hc)
+				// resp, err = b.analyseCandlesSimplest(tempId, hc)
 			}
 		}
 		if err != nil {
