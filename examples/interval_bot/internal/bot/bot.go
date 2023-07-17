@@ -319,26 +319,23 @@ type analyseResponse struct {
 
 // analyseCandles - Расчет максимальной волатильности и интервала цены для инструмента
 func (b *Bot) analyseCandles(id string, candles []*pb.HistoricCandle) (*analyseResponse, error) {
-	// получили список средних цен
-	midPrices := make([]float64, 0, len(candles))
-	for _, candle := range candles {
-		midPrices = append(midPrices, midPrice(candle))
-	}
-	// ищем моду, те находим цену с макс пересечениями
-	modes, err := stats.Mode(midPrices)
-	var mode float64
-	if err != nil {
-		return nil, err
-	}
-	if len(modes) > 0 {
-		mode = modes[0]
-	}
 	instr, ok := b.executor.instruments[id]
 	if !ok {
 		return nil, fmt.Errorf("%v min price increment not found", id)
 	}
+	// получили список средних цен
+	midPrices := make([]float64, 0, len(candles))
+	for _, candle := range candles {
+		midPrices = append(midPrices, floatToQuotation(midPrice(candle), instr.minPriceInc).ToFloat())
+	}
+	// ищем медиану выборки
+	median, err := stats.Median(midPrices)
+	if err != nil {
+		return nil, err
+	}
 	// maxVol - Кол-во пересечений с модой
-	i, maxVol := b.findFixedInterval(mode, instr.minPriceInc, candles)
+	// i, maxVol := b.findFixedInterval(mode, instr.minPriceInc, candles)
+	i, maxVol := b.findInterval(median, instr.minPriceInc, candles)
 	return &analyseResponse{
 		id:            id,
 		interval:      i,
@@ -664,62 +661,56 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 	return totalProfit, (totalProfit / requiredMoneyForStart) * 100, nil
 }
 
-//// findInterval - Поиск интервала
-//func (b *Bot) findInterval(mode float64, inc *pb.Quotation, candles []*pb.HistoricCandle) (Interval, float64) {
-//	// минимальный профит в валюте / шаг цены = начальное кол-во шагов цены в интервале
-//	k := int(math.Round((mode * b.StrategyConfig.MinProfit / 100) / inc.ToFloat()))
-//	mode = floatToQuotation(mode, inc).ToFloat()
-//
-//	upper, lower := mode, mode
-//	var maxCrosses int64
-//	for i := 1; i <= k; i++ {
-//		upper = upper + inc.ToFloat()
-//		lower = lower - inc.ToFloat()
-//
-//		upperCrosses := crosses(upper, candles)
-//		lowerCrosses := crosses(lower, candles)
-//
-//		if upperCrosses > lowerCrosses {
-//			lower = lower + inc.ToFloat()
-//		} else {
-//			upper = upper - inc.ToFloat()
-//		}
-//	}
-//
-//	// volatility = maxCrosses * (width/median * 100)
-//	var initialVolatility, volatility, delta float64
-//	maxCrosses = intervalCrosses(upper, lower, candles)
-//	initialVolatility = ((upper - lower) / mode * 100) * float64(maxCrosses)
-//	volatility = initialVolatility
-//
-//	for {
-//		u, l := upper, lower
-//		mc := maxCrosses
-//		upper = upper + inc.ToFloat()
-//		lower = lower - inc.ToFloat()
-//
-//		upperCrosses := crosses(upper, candles)
-//		lowerCrosses := crosses(lower, candles)
-//
-//		if upperCrosses > lowerCrosses {
-//			lower = lower + inc.ToFloat()
-//		} else {
-//			upper = upper - inc.ToFloat()
-//		}
-//		maxCrosses = intervalCrosses(upper, lower, candles)
-//		tempVolatility := ((upper - lower) / mode * 100) * float64(maxCrosses)
-//
-//		delta = tempVolatility - volatility
-//		volatility = tempVolatility
-//		if delta < 0 {
-//			upper, lower = u, l
-//			maxCrosses = mc
-//			volatility = ((upper - lower) / mode * 100) * float64(maxCrosses)
-//			break
-//		}
-//	}
-//	return Interval{
-//		high: upper,
-//		low:  lower,
-//	}, ((upper - lower) / mode * 100) * float64(maxCrosses)
-//}
+// findInterval - Поиск интервала цены от медианы, начальное значение ширины = MinProfit, далее расширяется если это выгодно
+func (b *Bot) findInterval(median float64, inc *pb.Quotation, candles []*pb.HistoricCandle) (Interval, float64) {
+	// минимальный профит в валюте / шаг цены = начальное кол-во шагов цены в интервале
+	k := int(math.Round((median * b.StrategyConfig.MinProfit / 100) / inc.ToFloat()))
+	median = floatToQuotation(median, inc).ToFloat()
+	// начальное значение для границ интервала = медиана
+	upper, lower := median, median
+	// расширяемся до MinProfit
+	for i := 1; i <= k; i++ {
+		upper = upper + inc.ToFloat()
+		lower = lower - inc.ToFloat()
+
+		upperCrosses := crosses(upper, candles)
+		lowerCrosses := crosses(lower, candles)
+
+		if upperCrosses > lowerCrosses {
+			lower = lower + inc.ToFloat()
+		} else {
+			upper = upper - inc.ToFloat()
+		}
+	}
+
+	// volatility = maxCrosses * (width/mode * 100)
+	// далее, если не убывает максимальная волатильность, расширяем интервал
+
+	for {
+		u, l := upper, lower
+		mv := ((u - l) / median * 100) * float64(intervalCrosses(u, l, candles))
+
+		upper = upper + inc.ToFloat()
+		lower = lower - inc.ToFloat()
+
+		upperCrosses := crosses(upper, candles)
+		lowerCrosses := crosses(lower, candles)
+
+		if upperCrosses > lowerCrosses {
+			lower = lower + inc.ToFloat()
+		} else {
+			upper = upper - inc.ToFloat()
+		}
+
+		tempVolatility := ((upper - lower) / median * 100) * float64(intervalCrosses(upper, lower, candles))
+
+		if tempVolatility-mv <= 0 {
+			upper, lower = u, l
+			break
+		}
+	}
+	return Interval{
+		high: upper,
+		low:  lower,
+	}, ((upper - lower) / median * 100) * float64(intervalCrosses(upper, lower, candles))
+}
