@@ -643,7 +643,7 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 					instrumentProfit += p
 					b.Client.Logger.Infof("last day sell out, profit = %.3f in percent = %.3f", p, (lastCandle.GetClose().ToFloat()-interval.low)/interval.low*100)
 					inStock = false
-					instrumentProfit -= interval.high * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					instrumentProfit -= lastCandle.GetClose().ToFloat() * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
 				}
 			} else {
 				// предполагаем что лимитная заявка исполнится если цена поручения выше минимальной в этой свече
