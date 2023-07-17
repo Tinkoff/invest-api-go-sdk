@@ -141,12 +141,6 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 
 func (b *Bot) Run() error {
 	wg := &sync.WaitGroup{}
-
-	// проверяем баланс денежных средств на счете
-	err := b.checkMoneyBalance("RUB", 200000)
-	if err != nil {
-		b.Client.Logger.Fatalf(err.Error())
-	}
 	// отбор топ инструментов по волатильности
 
 	// результаты анализа
@@ -175,11 +169,6 @@ func (b *Bot) Run() error {
 		return analyseResult[i].volatilityMax > analyseResult[j].volatilityMax
 	})
 
-	for _, response := range analyseResult {
-		fmt.Printf("vol = %v h/l = %.9f %.9f id = %v\n", response.volatilityMax, response.interval.high,
-			response.interval.low, response.id)
-	}
-
 	// берем первые топ TopInstrumentsQuantity инструментов по волатильности
 	topInstrumentsIntervals := make(map[string]Interval, b.StrategyConfig.TopInstrumentsQuantity)
 	topInstrumentsIds := make([]string, 0, b.StrategyConfig.TopInstrumentsQuantity)
@@ -193,6 +182,28 @@ func (b *Bot) Run() error {
 		r := analyseResult[i]
 		topInstrumentsIntervals[r.id] = r.interval
 		topInstrumentsIds = append(topInstrumentsIds, r.id)
+	}
+
+	for id, response := range topInstrumentsIntervals {
+		fmt.Printf("high/low = %.9f %.9f id = %v\n", response.high,
+			response.low, id)
+	}
+
+	// начальная сумма для открытия позиций по отобранным инструментам
+	var requiredMoneyForStart float64
+	for id, i := range topInstrumentsIntervals {
+		currInstrument, ok := b.executor.instruments[id]
+		if !ok {
+			return fmt.Errorf("%v not found in executor map\n", id)
+		}
+		requiredMoneyForStart += i.low * float64(currInstrument.lot) * float64(currInstrument.quantity)
+	}
+	b.Client.Logger.Infof("RequiredMoneyForStart = %.3f", requiredMoneyForStart)
+
+	// проверяем баланс денежных средств на счете
+	err := b.checkMoneyBalance("RUB", requiredMoneyForStart)
+	if err != nil {
+		b.Client.Logger.Fatalf(err.Error())
 	}
 
 	// запуск исполнителя, он начнет торговать топовыми инструментами
@@ -336,6 +347,69 @@ func (b *Bot) analyseCandles(id string, candles []*pb.HistoricCandle) (*analyseR
 	// maxVol - Кол-во пересечений с модой
 	// i, maxVol := b.findFixedInterval(mode, instr.minPriceInc, candles)
 	i, maxVol := b.findInterval(median, instr.minPriceInc, candles)
+	return &analyseResponse{
+		id:            id,
+		interval:      i,
+		volatilityMax: maxVol,
+	}, nil
+}
+
+// analyseCandlesSimplest - Расчет максимальной волатильности и интервала цены для инструмента полным перебором
+func (b *Bot) analyseCandlesSimplest(id string, candles []*pb.HistoricCandle) (*analyseResponse, error) {
+	instr, ok := b.executor.instruments[id]
+	if !ok {
+		return nil, fmt.Errorf("%v min price increment not found", id)
+	}
+
+	if len(candles) < 1 {
+		return nil, fmt.Errorf("candles slice is empty")
+	}
+	// максимальное и минимальное значение цены из исторических свечей
+	maxHigh := candles[0].GetHigh().ToFloat()
+	minLow := candles[0].GetLow().ToFloat()
+	for _, candle := range candles {
+		if candle.GetHigh().ToFloat() > maxHigh {
+			maxHigh = candle.GetHigh().ToFloat()
+		}
+		if candle.GetLow().ToFloat() < minLow {
+			minLow = candle.GetLow().ToFloat()
+		}
+	}
+
+	// для каждой цены считаем кол-во пересечений со свечами
+	price := minLow
+	priceCrosses := make([]struct {
+		price   float64
+		crosses int64
+	}, 0)
+
+	for price <= maxHigh {
+		priceCrosses = append(priceCrosses, struct {
+			price   float64
+			crosses int64
+		}{
+			price:   price,
+			crosses: crosses(price, candles),
+		})
+		price += instr.minPriceInc.ToFloat()
+		price = floatToQuotation(price, instr.minPriceInc).ToFloat()
+	}
+
+	// находим цену с максимальным кол-вом пересечений и от нее начинаем расширять интервал
+	var maxCrossesPrice struct {
+		price   float64
+		crosses int64
+	}
+
+	for _, cp := range priceCrosses {
+		if cp.crosses > maxCrossesPrice.crosses {
+			maxCrossesPrice = cp
+		}
+	}
+
+	// maxVol - Кол-во пересечений с модой
+	// i, maxVol := b.findFixedInterval(mode, instr.minPriceInc, candles)
+	i, maxVol := b.findInterval(maxCrossesPrice.price, instr.minPriceInc, candles)
 	return &analyseResponse{
 		id:            id,
 		interval:      i,
@@ -546,7 +620,8 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 			case MathStat:
 				resp, err = b.analyseCandlesByMathStat(tempId, hc)
 			case MinProfit:
-				resp, err = b.analyseCandles(tempId, hc)
+				// resp, err = b.analyseCandles(tempId, hc)
+				resp, err = b.analyseCandlesSimplest(tempId, hc)
 			}
 		}
 		if err != nil {
@@ -633,7 +708,8 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 					b.Client.Logger.Infof("stop loss, loss = %.3f in percent = %.3f", tempLoss, -b.StrategyConfig.StopLossPercent)
 					inStock = false
 					instrumentProfit -= interval.high * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
-					stopTradingToday = true
+					// после стоп-лосса не заканчиваем торги на сегодня
+					// stopTradingToday = true
 					// если это последняя свеча на сегодня
 				case i == len(todayCandles)-1:
 					p := (lastCandle.GetClose().ToFloat() - interval.low) * float64(currInstrument.lot) * float64(currInstrument.quantity)
@@ -643,8 +719,10 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 					instrumentProfit -= lastCandle.GetClose().ToFloat() * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
 				}
 			} else {
+				// симуляция покупки по стоп лимит, если цена low не пересекает текущую свечу (она ниже) - считаем что ордер на покупку не выставится,
+				// но если цена пересекает свечу, считаем, что купили в эту же свечу лимиткой по low
 				// предполагаем что лимитная заявка исполнится если цена поручения выше минимальной в этой свече
-				if interval.low >= candle.GetLow().ToFloat() && i < len(todayCandles)-1 {
+				if interval.low <= candle.GetHigh().ToFloat() && interval.low >= candle.GetLow().ToFloat() && i < len(todayCandles)-1 {
 					// if interval.low >= candle.GetLow().ToFloat() && interval.high <= candle.GetHigh().ToFloat() {
 					// могли бы купить
 					inStock = true
