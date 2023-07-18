@@ -6,6 +6,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"reflect"
 	"time"
 )
 
@@ -82,6 +83,9 @@ func NewCandlesStorage(dbpath string, update bool, required map[string]StorageIn
 			// обновляем значение последнего запроса
 			cs.instruments[id] = instrument
 			err = cs.storeCandlesInDB(id, now, newCandles)
+			if err != nil {
+				return nil, err
+			}
 		} else {
 			cs.instruments[id] = instrument
 		}
@@ -180,14 +184,14 @@ func (c *CandlesStorage) CandlesAll(uid string) ([]*pb.HistoricCandle, error) {
 		}
 	}()
 
-	dst := &CandleDB{}
+	dst := CandleDB{}
 	candles := make([]*pb.HistoricCandle, 0)
 	for rows.Next() {
-		err = rows.StructScan(dst)
+		err = rows.StructScan(&dst)
 		if err != nil {
 			return nil, err
 		}
-		if dst != nil {
+		if !reflect.DeepEqual(dst, CandleDB{}) {
 			candles = append(candles, &pb.HistoricCandle{
 				Open:       investgo.FloatToQuotation(dst.Open, instrument.PriceStep),
 				High:       investgo.FloatToQuotation(dst.High, instrument.PriceStep),
@@ -399,14 +403,14 @@ func (c *CandlesStorage) loadCandlesFromDB(uid string, inc *pb.Quotation, from, 
 		}
 	}()
 
-	dst := &CandleDB{}
+	dst := CandleDB{}
 	candles := make([]*pb.HistoricCandle, 0)
 	for rows.Next() {
-		err = rows.StructScan(dst)
+		err = rows.StructScan(&dst)
 		if err != nil {
 			return nil, err
 		}
-		if dst != nil {
+		if !reflect.DeepEqual(dst, CandleDB{}) {
 			candles = append(candles, &pb.HistoricCandle{
 				Open:       investgo.FloatToQuotation(dst.Open, inc),
 				High:       investgo.FloatToQuotation(dst.High, inc),
