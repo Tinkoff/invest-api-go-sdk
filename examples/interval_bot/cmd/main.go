@@ -16,18 +16,16 @@ import (
 	"time"
 )
 
-//const (
-//	// SHARES_NUM - Количество акций для торгов
-//	SHARES_NUM = 300
-//	// EXCHANGE - Биржа на которой будет работать бот
-//	EXCHANGE = "MOEX"
-//	// CURRENCY - Валюта для работы бота
-//	CURRENCY = "RUB"
-//	// QUANTITY - Количество лотов инструментов, которые будет покупать/продавать бот
-//	QUANTITY = 1
-//	// MINUTES - Интервал обновления исторических свечей для расчета нового коридора цен в минутах
-//	MINUTES = 5
-//)
+const (
+	// INSTRUMENTS_MAX - Максимальное кол-во инструментов
+	INSTRUMENTS_MAX = 300
+	// EXCHANGE - Биржа на которой будет работать бот
+	EXCHANGE = "MOEX"
+	// CURRENCY - Валюта для работы бота
+	CURRENCY = "RUB"
+	// MINUTES - Интервал обновления исторических свечей для расчета нового коридора цен в минутах
+	MINUTES = 10
+)
 
 func main() {
 	// загружаем конфигурацию для сдк из .yaml файла
@@ -73,6 +71,8 @@ func main() {
 
 	// для создания стратеги нужно ее сконфигурировать, для этого получим список идентификаторов инструментов,
 	// которыми предстоит торговать
+	// слайс идентификаторов торговых инструментов instrument_uid
+	instrumentIds := make([]string, 0, 300)
 	insrtumentsService := client.NewInstrumentsServiceClient()
 	// получаем список акций доступных для торговли через investAPI
 	instrumentsResp, err := insrtumentsService.Shares(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
@@ -81,30 +81,35 @@ func main() {
 	}
 	// слайс идентификаторов торговых инструментов instrument_uid
 	// акции с московской биржи
-	instrumentIds := make([]string, 0, 300)
 	shares := instrumentsResp.GetInstruments()
 	for _, share := range shares {
-		if len(instrumentIds) > SHARES_NUM-1 {
+		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
 			break
 		}
 		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
 		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
-		if exchange && currency {
+		if exchange && currency && !share.GetForQualInvestorFlag() {
 			instrumentIds = append(instrumentIds, share.GetUid())
 		}
 	}
 	logger.Infof("got %v instruments", len(instrumentIds))
 
 	intervalConfig := bot.IntervalStrategyConfig{
-		Instruments:            instrumentIds,
-		Quantity:               QUANTITY,
-		MinProfit:              0.5,
-		SellOut:                true,
-		IntervalUpdateDelay:    time.Minute * MINUTES,
-		TopInstrumentsQuantity: 15,
-		StorageDBPath:          "examples/interval_bot/candles/candles.db",
-		StorageCandleInterval:  pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
-		StorageFromTime:        time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
+		Instruments:             instrumentIds,
+		PreferredPositionPrice:  200,
+		MaxPositionPrice:        400,
+		MinProfit:               0.2,
+		IntervalUpdateDelay:     time.Minute * MINUTES,
+		TopInstrumentsQuantity:  10,
+		SellOut:                 true,
+		StorageDBPath:           "examples/interval_bot/candles/candles.db",
+		StorageCandleInterval:   pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
+		StorageFromTime:         time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
+		StorageUpdate:           true,
+		DaysToCalculateInterval: 1,
+		StopLossPercent:         2,
+		AnalyseLowPercentile:    0,
+		AnalyseHighPercentile:   0,
 	}
 	// создание интервального бота
 	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)
@@ -156,7 +161,7 @@ func main() {
 						defer wg.Done()
 						err = intervalBot.Run()
 						if err != nil {
-							logger.Errorf(err.Error())
+							logger.Fatalf(err.Error())
 						}
 					}()
 				case investgo.STOP:
