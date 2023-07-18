@@ -79,10 +79,11 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 			return nil, err
 		}
 		instrumentsForExecutor[instrument] = Instrument{
-			entryPrice:  0,
-			lot:         resp.GetInstrument().GetLot(),
-			currency:    resp.GetInstrument().GetCurrency(),
-			minPriceInc: resp.GetInstrument().GetMinPriceIncrement(),
+			entryPrice:      0,
+			lot:             resp.GetInstrument().GetLot(),
+			currency:        resp.GetInstrument().GetCurrency(),
+			minPriceInc:     resp.GetInstrument().GetMinPriceIncrement(),
+			stopLossPercent: config.StopLossPercent,
 		}
 		instrumentsForStorage[instrument] = StorageInstrument{
 			CandleInterval: config.StorageCandleInterval,
@@ -637,8 +638,6 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 
 	// берем первые топ TopInstrumentsQuantity инструментов по волатильности
 	topInstrumentsIntervals := make(map[string]Interval, b.StrategyConfig.TopInstrumentsQuantity)
-	topInstrumentsIds := make([]string, 0, b.StrategyConfig.TopInstrumentsQuantity)
-
 	if b.StrategyConfig.TopInstrumentsQuantity > len(analyseResult) {
 		return 0, 0, fmt.Errorf("TopInstrumentsQuantity = %v, but max value = %v\n",
 			b.StrategyConfig.TopInstrumentsQuantity, len(analyseResult))
@@ -647,7 +646,6 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 	for i := 0; i < b.StrategyConfig.TopInstrumentsQuantity; i++ {
 		r := analyseResult[i]
 		topInstrumentsIntervals[r.id] = r.interval
-		topInstrumentsIds = append(topInstrumentsIds, r.id)
 	}
 	// начальная сумма для открытия позиций по отобранным инструментам
 	var requiredMoneyForStart float64
