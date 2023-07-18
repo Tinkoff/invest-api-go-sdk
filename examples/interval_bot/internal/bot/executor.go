@@ -16,8 +16,11 @@ import (
 type InstrumentState int
 
 const (
+	// WAIT_ENTRY_PRICE - Ожидание нужной last price по инструменту, для выставления лимитной заявки на покупку.
+	// Аналог StopLimit заявки на покупку
+	WAIT_ENTRY_PRICE InstrumentState = iota
 	// OUT_OF_STOCK - Нет открытых позиций по этому инструменту
-	OUT_OF_STOCK InstrumentState = iota
+	OUT_OF_STOCK
 	// IN_STOCK - Есть открытая позиция по этому инструменту
 	IN_STOCK
 	// TRY_TO_BUY - Выставлена лимитная заявка на покупку этого инструмента
@@ -154,6 +157,15 @@ func (e *Executor) Start(i map[string]Interval) error {
 		}
 	}(e.ctx)
 
+	e.wg.Add(1)
+	go func(ctx context.Context) {
+		defer e.wg.Done()
+		err := e.listenLastPrices(ctx)
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}(e.ctx)
+
 	// отслеживание исполнения сделок
 	e.wg.Add(1)
 	go func(ctx context.Context) {
@@ -167,12 +179,12 @@ func (e *Executor) Start(i map[string]Interval) error {
 	// начальные значения интервалов цен
 	e.intervals = newIntervals(i)
 
-	// выставляем заявки на покупку и далее отслеживаем статусы инструментов и выставляем заявки
-	for id, interval := range e.intervals.i {
-		err := e.BuyLimit(id, interval.low)
-		if err != nil {
-			e.client.Logger.Errorf(err.Error())
-		}
+	// пытаемся выставить заявки на покупку и далее отслеживаем статусы инструментов и выставляем заявки
+	for id := range e.intervals.i {
+		e.instrumentsStates.Update(id, State{
+			instrumentState: WAIT_ENTRY_PRICE,
+			orderId:         "",
+		})
 	}
 	return nil
 }
@@ -293,6 +305,13 @@ func (e *Executor) CancelLimit(id string) error {
 	}
 	if state.instrumentState == IN_STOCK || state.instrumentState == OUT_OF_STOCK {
 		return fmt.Errorf("invalid instrument state")
+	}
+	if state.instrumentState == WAIT_ENTRY_PRICE {
+		e.instrumentsStates.Update(id, State{
+			instrumentState: OUT_OF_STOCK,
+		})
+		e.client.Logger.Infof("cancel limit order, instrument uid = %v", id)
+		return nil
 	}
 	_, err := e.ordersService.CancelOrder(e.client.Config.AccountId, state.orderId)
 	if err != nil {
@@ -559,6 +578,9 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 					continue
 				}
 				orderTrades := t.GetTrades()
+				for i, trade := range orderTrades {
+					e.client.Logger.Infof("trade %v = %v\n", i, trade)
+				}
 				uid := t.GetInstrumentUid()
 				if len(orderTrades) < 1 {
 					e.client.Logger.Errorf("order trades len < 1")
@@ -577,28 +599,95 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 					e.instruments[uid] = currentInstrument
 					e.client.Logger.Infof("buy order is fill, price = %v figi = %v", orderPrice, t.GetFigi())
 				case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_SELL:
-					is = OUT_OF_STOCK
+					// теперь после выхода из позиции мы ждем подходящую цену для входа
+					is = WAIT_ENTRY_PRICE
 					profit := (orderPrice - currentInstrument.entryPrice) * float64(currentInstrument.lot) * float64(currentInstrument.quantity)
 					e.strategyProfit += profit
-					e.client.Logger.Infof("buy order is fill, profit = %v figi = %v", profit, t.GetFigi())
+					e.client.Logger.Infof("sell order is fill, profit = %v figi = %v", profit, t.GetFigi())
 				}
 
 				// обновляем состояние инструмента
 				e.instrumentsStates.Update(uid, State{instrumentState: is})
-				// как только купили выставляем заявку на продажу и наоборот
+				// если только что купили выставляем заявку на продажу
+				if is != IN_STOCK {
+					continue
+				}
 				price, ok := e.intervals.get(uid)
 				if !ok {
 					e.client.Logger.Errorf("%v not found in intervals", uid)
 					return
 				}
-				switch is {
-				case IN_STOCK:
-					err := e.SellLimit(uid, price.high)
-					if err != nil {
-						e.client.Logger.Errorf(err.Error())
-					}
-				case OUT_OF_STOCK:
-					err := e.BuyLimit(uid, price.low)
+				err := e.SellLimit(uid, price.high)
+				if err != nil {
+					e.client.Logger.Errorf(err.Error())
+				}
+			}
+		}
+	}(ctx)
+
+	<-ctx.Done()
+	e.client.Logger.Infof("stop listening trades in executor")
+	stream.Stop()
+	return nil
+}
+
+// listenLastPrices - Метод слушает стрим последних цен и обновляет их
+func (e *Executor) listenLastPrices(ctx context.Context) error {
+	MarketDataStreamService := e.client.NewMarketDataStreamClient()
+	stream, err := MarketDataStreamService.MarketDataStream()
+	if err != nil {
+		return err
+	}
+
+	ids := make([]string, 0, len(e.instruments))
+	for id := range e.instruments {
+		ids = append(ids, id)
+	}
+	lastPricesChan, err := stream.SubscribeLastPrice(ids)
+	if err != nil {
+		return err
+	}
+
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		err := stream.Listen()
+		if err != nil {
+			e.client.Logger.Errorf(err.Error())
+		}
+	}()
+
+	// чтение из стрима
+	e.wg.Add(1)
+	go func(ctx context.Context) {
+		defer e.wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case lp, ok := <-lastPricesChan:
+				if !ok {
+					return
+				}
+				uid := lp.GetInstrumentUid()
+				price := lp.GetPrice().ToFloat()
+				// получаем состояние инструмента
+				state, ok := e.instrumentsStates.Get(uid)
+				if !ok {
+					e.client.Logger.Errorf("not found state for %v", uid)
+				}
+				// если инструмент не ждет обновления, просто пропускаем
+				if state.instrumentState != WAIT_ENTRY_PRICE {
+					continue
+				}
+
+				interval, ok := e.intervals.get(uid)
+				if !ok {
+					e.client.Logger.Errorf("not found interval for %v", uid)
+				}
+				// если достигаем нижней цены, выставляем заявку на покупку
+				if price >= interval.low {
+					err := e.BuyLimit(uid, interval.low)
 					if err != nil {
 						e.client.Logger.Errorf(err.Error())
 					}
@@ -608,7 +697,7 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 	}(ctx)
 
 	<-ctx.Done()
-	e.client.Logger.Infof("stop listening trades in executor")
+	e.client.Logger.Infof("stop updating last prices in executor")
 	stream.Stop()
 	return nil
 }
