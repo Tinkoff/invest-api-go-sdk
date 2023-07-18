@@ -159,6 +159,17 @@ func (e *Executor) Start(i map[string]Interval) error {
 		}
 	}(e.ctx)
 
+	// начальные значения интервалов цен
+	e.intervals = newIntervals(i)
+
+	// пытаемся выставить заявки на покупку и далее отслеживаем статусы инструментов и выставляем заявки
+	for id := range e.intervals.i {
+		e.instrumentsStates.Update(id, State{
+			instrumentState: WAIT_ENTRY_PRICE,
+			orderId:         "",
+		})
+	}
+
 	e.wg.Add(1)
 	go func(ctx context.Context) {
 		defer e.wg.Done()
@@ -177,17 +188,6 @@ func (e *Executor) Start(i map[string]Interval) error {
 			e.client.Logger.Errorf(err.Error())
 		}
 	}(e.ctx)
-
-	// начальные значения интервалов цен
-	e.intervals = newIntervals(i)
-
-	// пытаемся выставить заявки на покупку и далее отслеживаем статусы инструментов и выставляем заявки
-	for id := range e.intervals.i {
-		e.instrumentsStates.Update(id, State{
-			instrumentState: WAIT_ENTRY_PRICE,
-			orderId:         "",
-		})
-	}
 	return nil
 }
 
@@ -231,6 +231,7 @@ func (e *Executor) BuyLimit(id string, price float64) error {
 		OrderId:      investgo.CreateUid(),
 	})
 	if err != nil {
+		e.client.Logger.Errorf(investgo.MessageFromHeader(resp.GetHeader()))
 		return err
 	}
 	e.instrumentsStates.Update(id, State{
@@ -657,8 +658,8 @@ func (e *Executor) listenLastPrices(ctx context.Context) error {
 		return err
 	}
 
-	ids := make([]string, 0, len(e.instruments))
-	for id := range e.instruments {
+	ids := make([]string, 0, len(e.intervals.i))
+	for id := range e.intervals.i {
 		ids = append(ids, id)
 	}
 	lastPricesChan, err := stream.SubscribeLastPrice(ids)
