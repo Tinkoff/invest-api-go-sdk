@@ -203,7 +203,7 @@ func (md *MarketDataServiceClient) GetAllHistoricCandles(req *GetHistoricCandles
 	}
 	instruments := resp.GetInstruments()
 	if len(instruments) < 1 {
-		return nil, fmt.Errorf("Instrument %v not found\n", req.Instrument)
+		return nil, fmt.Errorf("instrument %v not found\n", req.Instrument)
 	}
 
 	var from time.Time
@@ -259,7 +259,7 @@ func (md *MarketDataServiceClient) writeCandlesToFile(candles []*pb.HistoricCand
 		return err
 	}
 	defer func() {
-		err := file.Close()
+		err = file.Close()
 		if err != nil {
 			md.logger.Errorf(err.Error())
 		}

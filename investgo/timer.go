@@ -98,7 +98,7 @@ func (t *Timer) Start(ctx context.Context) error {
 				}
 				t.events <- STOP
 				// если сегодня торги уже идут
-			case time.Now().After(today.GetStartTime().AsTime()) && time.Now().Before(today.GetEndTime().AsTime().Local()):
+			case time.Now().After(today.GetStartTime().AsTime()) && time.Now().Before(today.GetEndTime().AsTime().Local().Add(-t.cancelAhead)):
 				t.client.Logger.Infof("start trading session, remaining time = %v", time.Until(today.GetEndTime().AsTime().Local()))
 				t.events <- START
 				if stop := t.wait(ctxTimer, time.Until(today.GetEndTime().AsTime().Local())-t.cancelAhead); stop {
