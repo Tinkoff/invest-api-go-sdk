@@ -788,6 +788,10 @@ func (e *Executor) SellOut() (float64, error) {
 	var sellOutProfit float64
 	securities := resp.GetSecurities()
 	for _, security := range securities {
+		// если бумага заблокирована, пропускаем ее
+		if security.GetBalance() == 0 {
+			continue
+		}
 		var lot int64
 		instrument, ok := e.instruments[security.GetInstrumentUid()]
 		if !ok {
