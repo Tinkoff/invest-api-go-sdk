@@ -120,7 +120,6 @@ type Executor struct {
 
 	client            *investgo.Client
 	ordersService     *investgo.OrdersServiceClient
-	stopOrdersService *investgo.StopOrdersServiceClient
 	operationsService *investgo.OperationsServiceClient
 }
 
@@ -139,7 +138,6 @@ func NewExecutor(ctx context.Context, c *investgo.Client, ids map[string]Instrum
 		client:            c,
 		ordersService:     c.NewOrdersServiceClient(),
 		operationsService: c.NewOperationsServiceClient(),
-		stopOrdersService: c.NewStopOrdersServiceClient(),
 	}
 }
 
@@ -602,28 +600,16 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 					e.instruments[uid] = currentInstrument
 					e.client.Logger.Infof("buy order is fill, price = %v figi = %v", orderPrice, t.GetFigi())
 				case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_SELL:
-					oldState, ok := e.instrumentsStates.Get(uid)
-					if !ok {
-						e.client.Logger.Errorf("not found state for %v", uid)
-					}
-					// если это был стоп-лосс, отменяем выставленную заявку на продажу
-					orderId := t.GetOrderId()
-					if orderId != oldState.orderId {
-						err = e.CancelLimit(uid)
-						if err != nil {
-							e.client.Logger.Errorf(err.Error())
-						}
-					}
 					// теперь после выхода из позиции мы ждем подходящую цену для входа
 					is = WAIT_ENTRY_PRICE
 					profit := (orderPrice - currentInstrument.entryPrice) * float64(currentInstrument.lot) * float64(currentInstrument.quantity)
 					e.strategyProfit += profit
-					e.client.Logger.Infof("sell order is fill, profit = %v figi = %v", profit, t.GetFigi())
+					e.client.Logger.Infof("sell order is fill, profit = %.9f figi = %v", profit, t.GetFigi())
 				}
 
 				// обновляем состояние инструмента
 				e.instrumentsStates.Update(uid, State{instrumentState: is})
-				// если только что купили выставляем заявку на продажу и стоп-лосс
+				// если только что купили выставляем заявку на продажу
 				if is != IN_STOCK {
 					continue
 				}
@@ -633,10 +619,6 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 					return
 				}
 				err = e.SellLimit(uid, price.high)
-				if err != nil {
-					e.client.Logger.Errorf(err.Error())
-				}
-				err = e.StopLoss(uid)
 				if err != nil {
 					e.client.Logger.Errorf(err.Error())
 				}
@@ -695,20 +677,48 @@ func (e *Executor) listenLastPrices(ctx context.Context) error {
 				if !ok {
 					e.client.Logger.Errorf("not found state for %v", uid)
 				}
-				// если инструмент не ждет обновления, просто пропускаем
-				if state.instrumentState != WAIT_ENTRY_PRICE {
-					continue
-				}
 
-				interval, ok := e.intervals.get(uid)
-				if !ok {
-					e.client.Logger.Errorf("not found interval for %v", uid)
-				}
-				// если достигаем нижней цены интервала, выставляем заявку на покупку
-				if price >= interval.low {
-					err := e.BuyLimit(uid, interval.low)
-					if err != nil {
-						e.client.Logger.Errorf(err.Error())
+				switch state.instrumentState {
+				case WAIT_ENTRY_PRICE:
+					interval, ok := e.intervals.get(uid)
+					if !ok {
+						e.client.Logger.Errorf("not found interval for %v", uid)
+					}
+					// если достигаем нижней цены интервала, выставляем заявку на покупку
+					if price >= interval.low {
+						err := e.BuyLimit(uid, interval.low)
+						if err != nil {
+							e.client.Logger.Errorf(err.Error())
+						}
+					}
+				case TRY_TO_SELL:
+					// Если выставлена заявка на продажу, но цена упала - продаем по рынку
+					interval, ok := e.intervals.get(uid)
+					if !ok {
+						e.client.Logger.Errorf("not found interval for %v", uid)
+					}
+					instrument, ok := e.instruments[uid]
+					if !ok {
+						e.client.Logger.Errorf("%v not found in executor map", uid)
+					}
+					if price <= investgo.FloatToQuotation(interval.low*(1-instrument.stopLossPercent/100), instrument.minPriceInc).ToFloat() {
+						e.client.Logger.Infof("stop loss with %v", uid)
+						// Отменяем заявку на продажу
+						err = e.CancelLimit(uid)
+						if err != nil {
+							e.client.Logger.Errorf(err.Error())
+						}
+						_, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
+							InstrumentId: uid,
+							Quantity:     instrument.quantity,
+							Price:        nil,
+							AccountId:    e.client.Config.AccountId,
+							OrderType:    pb.OrderType_ORDER_TYPE_MARKET,
+							OrderId:      investgo.CreateUid(),
+						})
+						if err != nil {
+							e.client.Logger.Errorf(err.Error())
+						}
 					}
 				}
 			}
@@ -718,47 +728,6 @@ func (e *Executor) listenLastPrices(ctx context.Context) error {
 	<-ctx.Done()
 	e.client.Logger.Infof("stop updating last prices in executor")
 	stream.Stop()
-	return nil
-}
-
-// StopLoss - Выставление стоп-лосс заявки по инструменту и проценту из конфига стратегии
-func (e *Executor) StopLoss(id string) error {
-	instrument, ok := e.instruments[id]
-	if !ok {
-		return fmt.Errorf("%v not found in executor instruments\n", id)
-	}
-	interval, ok := e.intervals.get(id)
-	if !ok {
-		return fmt.Errorf("not found interval for%v\n", id)
-	}
-	stopPrice := investgo.FloatToQuotation(interval.low*(1-instrument.stopLossPercent/100), instrument.minPriceInc)
-	_, err := e.stopOrdersService.PostStopOrder(&investgo.PostStopOrderRequest{
-		InstrumentId:   id,
-		Quantity:       instrument.quantity,
-		Price:          nil,
-		StopPrice:      stopPrice,
-		Direction:      pb.StopOrderDirection_STOP_ORDER_DIRECTION_SELL,
-		AccountId:      e.client.Config.AccountId,
-		ExpirationType: pb.StopOrderExpirationType_STOP_ORDER_EXPIRATION_TYPE_GOOD_TILL_CANCEL,
-		StopOrderType:  pb.StopOrderType_STOP_ORDER_TYPE_STOP_LOSS,
-		ExpireDate:     time.Time{},
-	})
-	return err
-}
-
-// cancelStopOrders - Отмена всех стоп-приказов на счете
-func (e *Executor) cancelStopOrders() error {
-	resp, err := e.stopOrdersService.GetStopOrders(e.client.Config.AccountId)
-	if err != nil {
-		return err
-	}
-	orders := resp.GetStopOrders()
-	for _, order := range orders {
-		_, err = e.stopOrdersService.CancelStopOrder(e.client.Config.AccountId, order.GetStopOrderId())
-		if err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -773,11 +742,6 @@ func (e *Executor) SellOut() (float64, error) {
 				return 0, err
 			}
 		}
-	}
-	// отменяем все стоп приказы
-	err := e.cancelStopOrders()
-	if err != nil {
-		return 0, err
 	}
 	// продаем бумаги, которые в наличии
 	resp, err := e.operationsService.GetPositions(e.client.Config.AccountId)
