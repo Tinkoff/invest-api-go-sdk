@@ -521,6 +521,12 @@ func crosses(price float64, candles []*pb.HistoricCandle) int64 {
 func timeIntervalByDays(reqDays int, now time.Time) (from time.Time, to time.Time) {
 	y, m, d := now.Date()
 	daysFromMonday := int(now.Weekday() - time.Monday)
+	// если на этой неделе хватает торговых дней
+	if reqDays <= daysFromMonday {
+		to = time.Date(y, m, d, 0, 0, 0, 0, time.Local)
+		from = to.Add(-1 * time.Duration(reqDays) * 24 * time.Hour)
+		return from, to
+	}
 	switch {
 	// если сегодня пн
 	case daysFromMonday == 0:
@@ -529,7 +535,7 @@ func timeIntervalByDays(reqDays int, now time.Time) (from time.Time, to time.Tim
 		from = to.Add(-1 * time.Duration(reqDays) * 24 * time.Hour)
 	// если сегодня вт-чт
 	case daysFromMonday > 0 && daysFromMonday < 4:
-		delta := time.Duration(reqDays - daysFromMonday)
+		delta := time.Duration(int(math.Abs(float64(reqDays - daysFromMonday))))
 		// от сегодня до пн
 		to = time.Date(y, m, d, 0, 0, 0, 0, time.Local)
 		// from1 - это понедельник текущей недели
