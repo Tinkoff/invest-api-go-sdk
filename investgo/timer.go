@@ -106,7 +106,7 @@ func (t *Timer) Start(ctx context.Context) error {
 				}
 				t.events <- STOP
 				// если на сегодня торги уже окончены
-			case time.Now().After(today.GetEndTime().AsTime().Local()):
+			case time.Now().After(today.GetEndTime().AsTime().Local().Add(-t.cancelAhead)):
 				// спать час, пока не дождемся следующего дня
 				t.client.Logger.Infof("%v is already closed, wait next day for 1 hour", t.exchange)
 				if stop := t.wait(ctxTimer, time.Hour); stop {
