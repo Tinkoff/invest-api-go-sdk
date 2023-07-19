@@ -57,6 +57,7 @@ type Bot struct {
 
 	ctx       context.Context
 	cancelBot context.CancelFunc
+	wg        *sync.WaitGroup
 
 	executor *Executor
 	storage  *CandlesStorage
@@ -64,6 +65,7 @@ type Bot struct {
 
 func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrategyConfig) (*Bot, error) {
 	botCtx, cancel := context.WithCancel(ctx)
+	wg := &sync.WaitGroup{}
 	// по конфигу стратегии заполняем map для executor
 	instrumentService := client.NewInstrumentsServiceClient()
 	marketDataService := client.NewMarketDataServiceClient()
@@ -135,13 +137,13 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 		Client:         client,
 		ctx:            botCtx,
 		cancelBot:      cancel,
+		wg:             wg,
 		executor:       NewExecutor(ctx, client, instrumentsForExecutor),
 		storage:        storage,
 	}, nil
 }
 
 func (b *Bot) Run() error {
-	wg := &sync.WaitGroup{}
 	// отбор топ инструментов по волатильности
 
 	// результаты анализа
@@ -214,9 +216,9 @@ func (b *Bot) Run() error {
 	}
 
 	// по тикеру обновляем
-	wg.Add(1)
+	b.wg.Add(1)
 	go func(ctx context.Context) {
-		defer wg.Done()
+		defer b.wg.Done()
 		ticker := time.NewTicker(b.StrategyConfig.IntervalUpdateDelay)
 		defer ticker.Stop()
 		for {
@@ -231,13 +233,15 @@ func (b *Bot) Run() error {
 			}
 		}
 	}(b.ctx)
+	return nil
+}
 
-	// Завершение работы бота по его контексту: вызов Stop() или отмена по дедлайну
-	<-b.ctx.Done()
+func (b *Bot) Stop() error {
+	b.cancelBot()
 	b.Client.Logger.Infof("stop interval bot...")
 
 	// явно завершаем работу исполнителя, если нужно выходим из всех позиций
-	err = b.executor.Stop(b.StrategyConfig.SellOut)
+	err := b.executor.Stop(b.StrategyConfig.SellOut)
 	if err != nil {
 		return err
 	}
@@ -247,12 +251,9 @@ func (b *Bot) Run() error {
 	if err != nil {
 		return err
 	}
-	wg.Wait()
+	// ждем пока все остановится
+	b.wg.Wait()
 	return nil
-}
-
-func (b *Bot) Stop() {
-	b.cancelBot()
 }
 
 func (b *Bot) UpdateIntervals(from time.Time, ids []string) error {
