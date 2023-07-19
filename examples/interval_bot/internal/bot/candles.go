@@ -15,6 +15,7 @@ type StorageInstrument struct {
 	CandleInterval pb.CandleInterval
 	PriceStep      *pb.Quotation
 	LastUpdate     time.Time
+	ticker         string
 }
 
 // CandlesStorage - Локально хранилище свечей в sqlite
@@ -118,6 +119,15 @@ func (c *CandlesStorage) Close() error {
 	return c.db.Close()
 }
 
+// ticker - Получение тикера инструмента по uid
+func (c *CandlesStorage) ticker(key string) string {
+	t, ok := c.instruments[key]
+	if !ok {
+		return "not found"
+	}
+	return t.ticker
+}
+
 // Candles - Получение исторических свечей по uid инструмента
 //func (c *CandlesStorage) Candles(id string, from, to time.Time) ([]*pb.HistoricCandle, error) {
 //	instrument, ok := c.instruments[id]
@@ -131,7 +141,7 @@ func (c *CandlesStorage) Close() error {
 func (c *CandlesStorage) Candles(id string, from, to time.Time) ([]*pb.HistoricCandle, error) {
 	allCandles, ok := c.candles[id]
 	if !ok {
-		return nil, fmt.Errorf("%v instrument not found, at first LoadCandlesHistory()", id)
+		return nil, fmt.Errorf("%v instrument not found, at first LoadCandlesHistory()", c.ticker(id))
 	}
 	indexes := [2]int{}
 	times := [2]time.Time{from, to}
@@ -147,7 +157,7 @@ func (c *CandlesStorage) Candles(id string, from, to time.Time) ([]*pb.HistoricC
 		}
 	}
 	if currIndex == 0 {
-		return nil, fmt.Errorf("%v candles not found in storage, try to UpdateCandlesHistory() from = %v\n", id, from)
+		return nil, fmt.Errorf("%v candles not found in storage, try to UpdateCandlesHistory() from = %v\n", c.ticker(id), from)
 	}
 	if indexes[1] == 0 {
 		return allCandles[indexes[0]:], nil
@@ -159,7 +169,7 @@ func (c *CandlesStorage) Candles(id string, from, to time.Time) ([]*pb.HistoricC
 func (c *CandlesStorage) CandlesAll(uid string) ([]*pb.HistoricCandle, error) {
 	instrument, ok := c.instruments[uid]
 	if !ok {
-		return nil, fmt.Errorf("%v instrument not found, at first LoadCandlesHistory()", uid)
+		return nil, fmt.Errorf("%v instrument not found, at first LoadCandlesHistory()", c.ticker(uid))
 	}
 
 	stmt, err := c.db.Preparex(`select * from candles where instrument_uid=?`)
@@ -203,7 +213,7 @@ func (c *CandlesStorage) CandlesAll(uid string) ([]*pb.HistoricCandle, error) {
 			})
 		}
 	}
-	c.logger.Infof("%v %v candles downloaded from storage", uid, len(candles))
+	c.logger.Infof("%v %v candles downloaded from storage", c.ticker(uid), len(candles))
 
 	return candles, nil
 }
@@ -233,10 +243,10 @@ func (c *CandlesStorage) LoadCandlesHistory(id string, interval pb.CandleInterva
 
 // UpdateCandlesHistory - Загрузить исторические свечи в хранилище от времени последнего обновления до now
 func (c *CandlesStorage) UpdateCandlesHistory(id string) error {
-	c.logger.Infof("%v candles updating...", id)
+	c.logger.Infof("%v candles updating...", c.ticker(id))
 	instrument, ok := c.instruments[id]
 	if !ok {
-		return fmt.Errorf("%v not found in candles storage", id)
+		return fmt.Errorf("%v not found in candles storage", c.ticker(id))
 	}
 	now := time.Now()
 	newCandles, err := c.mds.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
@@ -363,7 +373,7 @@ func (c *CandlesStorage) storeCandlesInDB(uid string, update time.Time, hc []*pb
 	if err != nil {
 		return err
 	}
-	c.logger.Infof("%v %v candles uploaded in storage", uid, len(hc))
+	c.logger.Infof("%v %v candles uploaded in storage", c.ticker(uid), len(hc))
 	return nil
 }
 

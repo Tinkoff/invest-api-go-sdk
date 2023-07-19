@@ -72,6 +72,8 @@ type Instrument struct {
 	lot int32
 	// currency - Код валюты инструмента
 	currency string
+	// ticker - Тикер инструмента
+	ticker string
 	// minPriceInc - Минимальный шаг цены
 	minPriceInc *pb.Quotation
 	// entryPrice - После открытия позиции, сохраняется цена этой сделки
@@ -236,9 +238,18 @@ func (e *Executor) BuyLimit(id string, price float64) error {
 		instrumentState: TRY_TO_BUY,
 		orderId:         resp.GetOrderId(),
 	})
-	e.client.Logger.Infof("post buy limit order, figi = %v price = %v", resp.GetFigi(),
+	e.client.Logger.Infof("post buy limit order with %v price = %v", e.ticker(resp.GetInstrumentUid()),
 		floatToQuotation(price, currentInstrument.minPriceInc).ToFloat())
 	return nil
+}
+
+// ticker - Получение тикера инструмента по uid
+func (e *Executor) ticker(key string) string {
+	t, ok := e.instruments[key]
+	if !ok {
+		return "not found"
+	}
+	return t.ticker
 }
 
 // possibleToBuy - Проверка свободного баланса денежных средств на счете, для покупки инструмента c uid = id по цене price
@@ -258,7 +269,7 @@ func (e *Executor) possibleToBuy(id string, price float64) bool {
 		}
 	}
 	if moneyInFloat < required {
-		e.client.Logger.Infof("executor: not enough money to buy order with id = %v", id)
+		e.client.Logger.Infof("executor: not enough money to buy order with %v", e.ticker(id))
 	}
 	return moneyInFloat > required
 }
@@ -271,11 +282,11 @@ func (e *Executor) SellLimit(id string, price float64) error {
 	}
 	st, ok := e.instrumentsStates.Get(id)
 	if !ok {
-		e.client.Logger.Infof("%v not found in instrumentStates", id)
+		e.client.Logger.Infof("%v not found in instrumentStates", e.ticker(id))
 		return nil
 	}
 	if st.instrumentState != IN_STOCK {
-		e.client.Logger.Infof("sell limit fail %v not in stock", id)
+		e.client.Logger.Infof("sell limit fail %v not in stock", e.ticker(id))
 		return nil
 	}
 	resp, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
@@ -293,7 +304,7 @@ func (e *Executor) SellLimit(id string, price float64) error {
 		instrumentState: TRY_TO_SELL,
 		orderId:         resp.GetOrderId(),
 	})
-	e.client.Logger.Infof("post sell limit order, figi = %v price = %v", resp.GetFigi(),
+	e.client.Logger.Infof("post sell limit order, with %v price = %v", e.ticker(resp.GetInstrumentUid()),
 		floatToQuotation(price, currentInstrument.minPriceInc).ToFloat())
 	return nil
 }
@@ -328,7 +339,7 @@ func (e *Executor) CancelLimit(id string) error {
 	e.instrumentsStates.Update(id, State{
 		instrumentState: newState,
 	})
-	e.client.Logger.Infof("cancel limit order, instrument uid = %v", id)
+	e.client.Logger.Infof("cancel limit order, instrument %v", e.ticker(id))
 	return nil
 }
 
@@ -361,7 +372,7 @@ func (e *Executor) ReplaceLimit(id string, price float64) error {
 		instrumentState: state.instrumentState,
 		orderId:         resp.GetOrderId(),
 	})
-	e.client.Logger.Infof("replace limit order, instrument uid = %v", id)
+	e.client.Logger.Infof("replace limit order with %v", e.ticker(id))
 	return nil
 }
 
@@ -598,13 +609,13 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 					is = IN_STOCK
 					currentInstrument.entryPrice = orderPrice
 					e.instruments[uid] = currentInstrument
-					e.client.Logger.Infof("buy order is fill, price = %v figi = %v", orderPrice, t.GetFigi())
+					e.client.Logger.Infof("%v buy order is fill, price = %v", e.ticker(t.GetInstrumentUid()), orderPrice)
 				case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_SELL:
 					// теперь после выхода из позиции мы ждем подходящую цену для входа
 					is = WAIT_ENTRY_PRICE
 					profit := (orderPrice - currentInstrument.entryPrice) * float64(currentInstrument.lot) * float64(currentInstrument.quantity)
 					e.strategyProfit += profit
-					e.client.Logger.Infof("sell order is fill, profit = %.9f figi = %v", profit, t.GetFigi())
+					e.client.Logger.Infof("%v sell order is fill, profit = %.9f", e.ticker(t.GetInstrumentUid()), profit)
 				}
 
 				// обновляем состояние инструмента
@@ -702,7 +713,7 @@ func (e *Executor) listenLastPrices(ctx context.Context) error {
 						e.client.Logger.Errorf("%v not found in executor map", uid)
 					}
 					if price <= investgo.FloatToQuotation(interval.low*(1-instrument.stopLossPercent/100), instrument.minPriceInc).ToFloat() {
-						e.client.Logger.Infof("stop loss with %v", uid)
+						e.client.Logger.Infof("stop loss with %v", e.ticker(uid))
 						// Отменяем заявку на продажу
 						err = e.CancelLimit(uid)
 						if err != nil {

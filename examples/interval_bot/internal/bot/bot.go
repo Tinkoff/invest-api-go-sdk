@@ -69,7 +69,8 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 	// по конфигу стратегии заполняем map для executor
 	instrumentService := client.NewInstrumentsServiceClient()
 	marketDataService := client.NewMarketDataServiceClient()
-	// инструменты для исполнителя
+	// инструменты для исполнителя, заполняем информацию по всем инструментам из конфига
+	// для торгов передадим избранные
 	instrumentsForExecutor := make(map[string]Instrument, len(config.Instruments))
 	// инструменты для хранилища
 	instrumentsForStorage := make(map[string]StorageInstrument, len(config.Instruments))
@@ -84,6 +85,7 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 			entryPrice:      0,
 			lot:             resp.GetInstrument().GetLot(),
 			currency:        resp.GetInstrument().GetCurrency(),
+			ticker:          resp.GetInstrument().GetTicker(),
 			minPriceInc:     resp.GetInstrument().GetMinPriceIncrement(),
 			stopLossPercent: config.StopLossPercent,
 		}
@@ -91,6 +93,7 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 			CandleInterval: config.StorageCandleInterval,
 			PriceStep:      resp.GetInstrument().GetMinPriceIncrement(),
 			LastUpdate:     config.StorageFromTime,
+			ticker:         resp.GetInstrument().GetTicker(),
 		}
 	}
 	// получаем последние цены по инструментам, слишком дорогие отбрасываем,
@@ -668,7 +671,7 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 	// проверяем на start дне
 	var totalProfit, instrumentProfit float64
 	for id, interval := range topInstrumentsIntervals {
-		fmt.Printf("Start trading with %v, high = %.9f, low = %.9f\n", id, interval.high, interval.low)
+		fmt.Printf("Start trading with %v, high = %.9f, low = %.9f\n", b.executor.ticker(id), interval.high, interval.low)
 		todayCandles, err := b.storage.Candles(id, start, start.Add(time.Hour*24))
 		if err != nil {
 			return 0, 0, err
@@ -736,7 +739,7 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 				}
 			}
 		}
-		fmt.Printf("Stop trading with %v, instock = %v, profit = %.9f\n", id, inStock, instrumentProfit)
+		fmt.Printf("Stop trading with %v, instock = %v, profit = %.9f\n", b.executor.ticker(id), inStock, instrumentProfit)
 		totalProfit += instrumentProfit
 		instrumentProfit = 0
 	}
