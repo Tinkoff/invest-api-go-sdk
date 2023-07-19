@@ -256,6 +256,7 @@ func (b *Bot) Stop() error {
 	}
 	// ждем пока все остановится
 	b.wg.Wait()
+	b.Client.Logger.Infof("interval bot stopped")
 	return nil
 }
 
