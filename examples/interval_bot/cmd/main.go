@@ -97,7 +97,7 @@ func main() {
 	intervalConfig := bot.IntervalStrategyConfig{
 		Instruments:             instrumentIds,
 		PreferredPositionPrice:  200,
-		MaxPositionPrice:        400,
+		MaxPositionPrice:        500,
 		MinProfit:               0.2,
 		IntervalUpdateDelay:     time.Minute * MINUTES,
 		TopInstrumentsQuantity:  10,
@@ -156,17 +156,16 @@ func main() {
 				switch ev {
 				case investgo.START:
 					// запуск бота
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
-						err = intervalBot.Run()
-						if err != nil {
-							logger.Fatalf(err.Error())
-						}
-					}()
+					err = intervalBot.Run()
+					if err != nil {
+						logger.Fatalf(err.Error())
+					}
 				case investgo.STOP:
 					// остановка бота
-					intervalBot.Stop()
+					err = intervalBot.Stop()
+					if err != nil {
+						logger.Errorf(err.Error())
+					}
 				}
 			}
 		}
