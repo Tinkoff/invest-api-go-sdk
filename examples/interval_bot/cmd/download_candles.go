@@ -17,14 +17,14 @@ import (
 	"time"
 )
 
-//const (
-//	// SHARES_NUM - Количество акций для торгов
-//	SHARES_NUM = 300
-//	// EXCHANGE - Биржа на которой будет работать бот
-//	EXCHANGE = "MOEX"
-//	// CURRENCY - Валюта для работы бота
-//	CURRENCY = "RUB"
-//)
+const (
+//	 // INSTRUMENTS_MAX - Максимальное кол-во инструментов
+//	 INSTRUMENTS_MAX = 300
+//		// EXCHANGE - Биржа на которой будет работать бот
+//		EXCHANGE = "MOEX"
+//		// CURRENCY - Валюта для работы бота
+//		CURRENCY = "RUB"
+)
 
 func main() {
 	// загружаем конфигурацию для сдк из .yaml файла
@@ -81,7 +81,7 @@ func main() {
 	instrumentIds := make([]string, 0, 300)
 	shares := instrumentsResp.GetInstruments()
 	for _, share := range shares {
-		if len(instrumentIds) > SHARES_NUM-1 {
+		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
 			break
 		}
 		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
