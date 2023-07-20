@@ -18,12 +18,12 @@ import (
 )
 
 const (
-//	 // INSTRUMENTS_MAX - Максимальное кол-во инструментов
-//	 INSTRUMENTS_MAX = 300
-//		// EXCHANGE - Биржа на которой будет работать бот
-//		EXCHANGE = "MOEX"
-//		// CURRENCY - Валюта для работы бота
-//		CURRENCY = "RUB"
+	// INSTRUMENTS_MAX - Максимальное кол-во инструментов
+	INSTRUMENTS_MAX = 300
+	// EXCHANGE - Биржа на которой будет работать бот
+	EXCHANGE = "MOEX"
+	// CURRENCY - Валюта для работы бота
+	CURRENCY = "RUB"
 )
 
 func main() {
