@@ -419,15 +419,8 @@ func (e *Executor) UpdateInterval(id string, i Interval) error {
 	// Если цена в интервале изменилась, заменяем лимитную заявку
 	switch state.instrumentState {
 	case TRY_TO_SELL:
-		p1 := investgo.FloatToQuotation(i.high, currentInstrument.minPriceInc)
-		p2 := investgo.FloatToQuotation(oldInterval.high, currentInstrument.minPriceInc)
-		if reflect.DeepEqual(p1, p2) {
-			return nil
-		}
-		err := e.ReplaceLimit(id, i.high)
-		if err != nil {
-			return err
-		}
+		// Если уже выставлена заявка на продажу, ее не нужно менять
+		return nil
 	case TRY_TO_BUY:
 		p1 := investgo.FloatToQuotation(i.low, currentInstrument.minPriceInc)
 		p2 := investgo.FloatToQuotation(oldInterval.low, currentInstrument.minPriceInc)
