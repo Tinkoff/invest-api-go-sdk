@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/sourcegraph/conc/pool"
 	"github.com/tinkoff/invest-api-go-sdk/examples/interval_bot/internal/bot"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
@@ -11,6 +12,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -24,8 +26,6 @@ const (
 	EXCHANGE = "MOEX"
 	// CURRENCY - Валюта для работы бота
 	CURRENCY = "RUB"
-	// MINUTES - Интервал обновления исторических свечей для расчета нового коридора цен в минутах
-	MINUTES = 10
 )
 
 // Report - отчет для бектеста на разных конфигах
@@ -43,10 +43,16 @@ func main() {
 	}
 
 	sigs := make(chan os.Signal, 1)
+	defer close(sigs)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	go func() {
+		<-sigs
+		cancel()
+	}()
 	// сдк использует для внутреннего логирования investgo.Logger
 	// для примера передадим uber.zap
 	zapConfig := zap.NewDevelopmentConfig()
@@ -85,123 +91,104 @@ func main() {
 
 	insrtumentsService := client.NewInstrumentsServiceClient()
 
-	// получаем список фондов доступных для торговли через investAPI
-	etfsResp, err := insrtumentsService.Etfs(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
-	if err != nil {
-		logger.Errorf(err.Error())
-	}
-	// рублевые фонды с московской биржи
-	etfs := etfsResp.GetInstruments()
-	for _, etf := range etfs {
-		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
-			break
-		}
-		exchange := strings.EqualFold(etf.GetExchange(), EXCHANGE)
-		currency := strings.EqualFold(etf.GetCurrency(), CURRENCY)
-		if exchange && currency {
-			instrumentIds = append(instrumentIds, etf.GetUid())
-		}
-	}
-
-	//// получаем список акций доступных для торговли через investAPI
-	//sharesResp, err := insrtumentsService.Shares(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
+	//// получаем список фондов доступных для торговли через investAPI
+	//etfsResp, err := insrtumentsService.Etfs(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
 	//if err != nil {
 	//	logger.Errorf(err.Error())
 	//}
-	//// рублевые акции c московской биржи
-	//shares := sharesResp.GetInstruments()
-	//for _, share := range shares {
+	//// рублевые фонды с московской биржи
+	//etfs := etfsResp.GetInstruments()
+	//for _, etf := range etfs {
 	//	if len(instrumentIds) > INSTRUMENTS_MAX-1 {
 	//		break
 	//	}
-	//	exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
-	//	currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
+	//	exchange := strings.EqualFold(etf.GetExchange(), EXCHANGE)
+	//	currency := strings.EqualFold(etf.GetCurrency(), CURRENCY)
 	//	if exchange && currency {
-	//		instrumentIds = append(instrumentIds, share.GetUid())
+	//		instrumentIds = append(instrumentIds, etf.GetUid())
 	//	}
 	//}
+
+	// получаем список акций доступных для торговли через investAPI
+	sharesResp, err := insrtumentsService.Shares(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
+	if err != nil {
+		logger.Errorf(err.Error())
+	}
+	// рублевые акции c московской биржи
+	shares := sharesResp.GetInstruments()
+	for _, share := range shares {
+		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
+			break
+		}
+		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
+		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
+		if exchange && currency && !share.GetForQualInvestorFlag() {
+			instrumentIds = append(instrumentIds, share.GetUid())
+		}
+	}
 
 	logger.Infof("got %v instruments", len(instrumentIds))
 
 	intervalConfig := bot.IntervalStrategyConfig{
-		Instruments:             instrumentIds,
-		PreferredPositionPrice:  1000,
-		MaxPositionPrice:        5000,
-		MinProfit:               0.2,
-		TopInstrumentsQuantity:  5,
-		SellOut:                 true,
-		StorageDBPath:           "examples/interval_bot/candles/candles.db",
-		StorageCandleInterval:   pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
-		StorageFromTime:         time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
-		StorageUpdate:           false,
-		DaysToCalculateInterval: 2,
-		StopLossPercent:         1,
-		AnalyseLowPercentile:    40,
-		AnalyseHighPercentile:   60,
+		Instruments:            instrumentIds,
+		PreferredPositionPrice: 1000,
+		MaxPositionPrice:       5000,
+		TopInstrumentsQuantity: 10,
+		SellOut:                true,
+		StorageDBPath:          "examples/interval_bot/candles/candles.db",
+		StorageCandleInterval:  pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
+		StorageFromTime:        time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
+		StorageUpdate:          false,
 	}
 	// создание интервального бота
 	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)
 	if err != nil {
 		logger.Fatalf("interval bot creating fail %v", err.Error())
 	}
+
 	// интервал для проверки
 	initDate := time.Date(2023, 1, 22, 0, 0, 0, 0, time.Local)
 	stopDate := time.Date(2023, 7, 7, 0, 0, 0, 0, time.Local)
 
-	//TestWithConfig(intervalBot, logger, initDate, stopDate, bot.BacktestConfig{
-	//	Analyse:                 bot.MinProfit,
-	//	LowPercentile:           0,
-	//	HighPercentile:          0,
-	//	MinProfit:               0.2,
-	//	DaysToCalculateInterval: 1,
-	//	StopLoss:                2,
-	//	Commission:              0.05,
-	//})
+	TestWithConfig(ctx, intervalBot, logger, initDate, stopDate, bot.BacktestConfig{
+		Analyse:                 bot.MinProfit,
+		LowPercentile:           0,
+		HighPercentile:          0,
+		MinProfit:               0.3,
+		DaysToCalculateInterval: 2,
+		StopLoss:                2,
+		Commission:              0.05,
+	})
 
-	TestWithMultipleConfigs(intervalBot, logger, initDate, stopDate)
+	// TestWithMultipleConfigs(ctx, intervalBot, logger, initDate, stopDate)
 }
 
-func TestWithConfig(b *bot.Bot, logger investgo.Logger, start, stop time.Time, config bot.BacktestConfig) {
-	date := start
-	var totalPercentage, totalProfit float64
-
-	var tradingDays int
-	for date.Before(stop) {
-		profit, percentage, err := b.BackTest(date, config)
-		if err != nil {
-			logger.Errorf(err.Error())
-		}
-		logger.Infof("day profit = %.9f", profit)
-		logger.Infof("day profit percent = %.9f", percentage)
-		totalPercentage += percentage
-		totalProfit += profit
-		if totalProfit != 0 {
-			tradingDays++
-		}
-		date = date.Add(24 * time.Hour)
+func TestWithConfig(ctx context.Context, b *bot.Bot, logger investgo.Logger, start, stop time.Time, config bot.BacktestConfig) {
+	r, err := testConfig(ctx, b, start, stop, config)
+	if err != nil {
+		logger.Errorf(err.Error())
 	}
-
-	logger.Infof("total  profit = %.3f average day percent = %.3f", totalProfit, totalPercentage/float64(tradingDays))
+	logger.Infof("total  profit = %.3f average day percent = %.3f", r.totalProfit, r.averageDayPercentProfit)
 }
 
-func TestWithMultipleConfigs(b *bot.Bot, logger investgo.Logger, start, stop time.Time) {
+func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Logger, start, stop time.Time) {
 	// слайс конфигов для бекстеста
 	bc := make([]bot.BacktestConfig, 0)
 	// начальные значения для стоп-лосса в процентах и кол-ва дней для расчета интервала=
-	stopLoss := 0.4
-	daysTocalculate := 1
+	stopLoss := 1.0
 	// простым перебором генерируем конфиги с разными значениями
-	for stopLoss < 1.5 {
-		for daysTocalculate < 7 {
+	for stopLoss < 2 {
+		daysToCalculate := 1
+		for daysToCalculate < 4 {
 			minProfit := 0.2
-			for minProfit < 1 {
+			for minProfit < 0.5 {
 				bc = append(bc, bot.BacktestConfig{
 					Analyse:                 bot.MinProfit,
 					LowPercentile:           0,
 					HighPercentile:          0,
 					MinProfit:               minProfit,
 					StopLoss:                stopLoss,
-					DaysToCalculateInterval: daysTocalculate,
+					DaysToCalculateInterval: daysToCalculate,
 					Commission:              0.05,
 				})
 				minProfit += 0.1
@@ -215,51 +202,29 @@ func TestWithMultipleConfigs(b *bot.Bot, logger investgo.Logger, start, stop tim
 			//		HighPercentile:          math.Round(100 - tempPerc),
 			//		MinProfit:               0.2,
 			//		StopLoss:                stopLoss,
-			//		DaysToCalculateInterval: daysTocalculate,
+			//		DaysToCalculateInterval: daysToСalculate,
 			//	})
 			//	tempPerc += 1
 			//}
-			daysTocalculate++
+			daysToCalculate++
 		}
 		stopLoss += 0.1
 	}
-	// слайс отчетов по бектесту
-	reports := make([]Report, 0)
-	// проверяем на истории каждый сгенерированный конфиг
+
+	// Запускаем параллельно проверку всех конфигов, которые получили выше
+	rp := pool.NewWithResults[Report]().WithMaxGoroutines(runtime.NumCPU()).WithContext(ctx)
 	for _, config := range bc {
-		initDate := start
-		stopDate := stop
-
-		date := initDate
-		var totalPercentage, totalProfit float64
-		var tradingDays int
-
-		for date.Before(stopDate) {
-			profit, percentage, err := b.BackTest(date, config)
-			if err != nil {
-				logger.Errorf(err.Error())
-			}
-			logger.Infof("day profit = %.9f", profit)
-			logger.Infof("day profit percent = %.9f", percentage)
-			totalPercentage += percentage
-			totalProfit += profit
-			if totalProfit != 0 {
-				tradingDays++
-			}
-			date = date.Add(24 * time.Hour)
-		}
-		// средний процент профита в день считаем как сумму всех профитов за день в процентах / кол-во торговых дней(когда профит != 0)
-		var ap float64
-		if tradingDays > 0 {
-			ap = totalPercentage / float64(tradingDays)
-		}
-		reports = append(reports, Report{
-			bc:                      config,
-			totalProfit:             totalProfit,
-			averageDayPercentProfit: ap,
+		c := config
+		rp.Go(func(ctx context.Context) (Report, error) {
+			return testConfig(ctx, b, start, stop, c)
 		})
-		tradingDays = 0
 	}
+	// по каждому конфигу будет отчет с профитом
+	reports, err := rp.Wait()
+	if err != nil {
+		logger.Errorf(err.Error())
+	}
+
 	// сортируем отчеты по возрастанию профита
 	sort.Slice(reports, func(i, j int) bool {
 		return reports[i].averageDayPercentProfit < reports[j].averageDayPercentProfit
@@ -271,4 +236,44 @@ func TestWithMultipleConfigs(b *bot.Bot, logger investgo.Logger, start, stop tim
 			i, report.averageDayPercentProfit, report.totalProfit, report.bc.Analyse, report.bc.MinProfit, report.bc.LowPercentile,
 			report.bc.HighPercentile, report.bc.DaysToCalculateInterval, report.bc.StopLoss)
 	}
+
+}
+
+// testConfig - Бектест для конфига на времени start-stop
+func testConfig(ctx context.Context, b *bot.Bot, start, stop time.Time, config bot.BacktestConfig) (Report, error) {
+	initDate := start
+	stopDate := stop
+
+	date := initDate
+	var totalPercentage, totalProfit float64
+	var tradingDays int
+
+	var done bool
+	for date.Before(stopDate) && !done {
+		select {
+		case <-ctx.Done():
+			done = true
+		default:
+			profit, percentage, err := b.BackTest(date, config)
+			if err != nil {
+				return Report{}, err
+			}
+			totalPercentage += percentage
+			totalProfit += profit
+			if totalProfit != 0 {
+				tradingDays++
+			}
+			date = date.Add(24 * time.Hour)
+		}
+	}
+	// средний процент профита в день считаем как сумму всех профитов за день в процентах / кол-во торговых дней(когда профит != 0)
+	var ap float64
+	if tradingDays > 0 {
+		ap = totalPercentage / float64(tradingDays)
+	}
+	return Report{
+		bc:                      config,
+		totalProfit:             totalProfit,
+		averageDayPercentProfit: ap,
+	}, nil
 }
