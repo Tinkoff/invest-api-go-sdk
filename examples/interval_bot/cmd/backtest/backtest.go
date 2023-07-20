@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"runtime"
@@ -17,6 +18,28 @@ import (
 	"strings"
 	"syscall"
 	"time"
+)
+
+// InstrumentsSelection - Типы инструментов для отбора
+type InstrumentsSelection int
+
+const (
+	// SHARES - Акции
+	SHARES InstrumentsSelection = iota
+	// ETFS - Фонды
+	ETFS
+	// SHARES_AND_ETFS - Акции и фонды
+	SHARES_AND_ETFS
+)
+
+// RunMode - Режим запуска бектеста
+type RunMode int
+
+const (
+	// TEST_WITH_CONFIG - Запуск бектеста на одном конфиге configToTest
+	TEST_WITH_CONFIG RunMode = iota
+	// TEST_WITH_MULTIPLE_CONFIGS - Запуск генерации конфигов полным перебором и проверка их всех
+	TEST_WITH_MULTIPLE_CONFIGS
 )
 
 const (
@@ -28,7 +51,51 @@ const (
 	CURRENCY = "RUB"
 )
 
-// Report - отчет для бектеста на разных конфигах
+var (
+	// Интервал для проверки
+	initDate = time.Date(2023, 6, 22, 0, 0, 0, 0, time.Local)
+	stopDate = time.Date(2023, 7, 7, 0, 0, 0, 0, time.Local)
+	// Критерий для отбора бумаг. Акции, фонды, акции и фонды
+	selection = SHARES_AND_ETFS
+	// Режим запуска теста, на одном конфиге или перебор сгенерированных конфигов
+	mode = TEST_WITH_MULTIPLE_CONFIGS
+	// Конфигурация стратегии, остальные поля заполняются из конфига бектеста
+	intervalConfig = bot.IntervalStrategyConfig{
+		PreferredPositionPrice: 1000,
+		MaxPositionPrice:       5000,
+		TopInstrumentsQuantity: 10,
+		SellOut:                true,
+		StorageDBPath:          "examples/interval_bot/candles/candles.db",
+		StorageCandleInterval:  pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
+		StorageFromTime:        time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
+		StorageUpdate:          false,
+	}
+	// Конфиг бектеста для режима TEST_WITH_CONFIG
+	configToTest = bot.BacktestConfig{
+		Analyse:                 bot.MinProfit,
+		LowPercentile:           0,
+		HighPercentile:          0,
+		MinProfit:               0.3,
+		DaysToCalculateInterval: 2,
+		StopLoss:                2,
+		// Для тарифа "Трейдер" комиссия за сделку с акцией составляет 0.05% от стоимости сделки
+		Commission: 0.05,
+	}
+	// Границы параметров конфига бектеста для генерации
+	stopLossMin = 0.5
+	stopLossMax = 2.0
+
+	daysToCalculateMin = 1
+	daysToCalculateMax = 5
+
+	minProfitMin = 0.2
+	minProfitMax = 0.6
+
+	percentileMin = 3.0
+	percentileMax = 40.0
+)
+
+// Report - Отчет о тесте на конкретном конфиге
 type Report struct {
 	bc                      bot.BacktestConfig
 	totalProfit             float64
@@ -88,27 +155,14 @@ func main() {
 	// слайс идентификаторов торговых инструментов instrument_uid
 	instrumentIds := make([]string, 0, 300)
 	// instrumentIds := []string{"9654c2dd-6993-427e-80fa-04e80a1cf4da"}
-
 	insrtumentsService := client.NewInstrumentsServiceClient()
-
-	//// получаем список фондов доступных для торговли через investAPI
-	//etfsResp, err := insrtumentsService.Etfs(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
-	//if err != nil {
-	//	logger.Errorf(err.Error())
-	//}
-	//// рублевые фонды с московской биржи
-	//etfs := etfsResp.GetInstruments()
-	//for _, etf := range etfs {
-	//	if len(instrumentIds) > INSTRUMENTS_MAX-1 {
-	//		break
-	//	}
-	//	exchange := strings.EqualFold(etf.GetExchange(), EXCHANGE)
-	//	currency := strings.EqualFold(etf.GetCurrency(), CURRENCY)
-	//	if exchange && currency {
-	//		instrumentIds = append(instrumentIds, etf.GetUid())
-	//	}
-	//}
-
+	// получаем список фондов доступных для торговли через investAPI
+	etfsResp, err := insrtumentsService.Etfs(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
+	if err != nil {
+		logger.Errorf(err.Error())
+	}
+	// рублевые фонды с московской биржи
+	etfs := etfsResp.GetInstruments()
 	// получаем список акций доступных для торговли через investAPI
 	sharesResp, err := insrtumentsService.Shares(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
 	if err != nil {
@@ -116,53 +170,71 @@ func main() {
 	}
 	// рублевые акции c московской биржи
 	shares := sharesResp.GetInstruments()
-	for _, share := range shares {
-		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
-			break
+
+	switch selection {
+	case SHARES:
+		for _, share := range shares {
+			if len(instrumentIds) > INSTRUMENTS_MAX-1 {
+				break
+			}
+			exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
+			currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
+			if exchange && currency && !share.GetForQualInvestorFlag() {
+				instrumentIds = append(instrumentIds, share.GetUid())
+			}
 		}
-		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
-		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
-		if exchange && currency && !share.GetForQualInvestorFlag() {
-			instrumentIds = append(instrumentIds, share.GetUid())
+	case ETFS:
+		for _, etf := range etfs {
+			if len(instrumentIds) > INSTRUMENTS_MAX-1 {
+				break
+			}
+			exchange := strings.EqualFold(etf.GetExchange(), EXCHANGE)
+			currency := strings.EqualFold(etf.GetCurrency(), CURRENCY)
+			if exchange && currency {
+				instrumentIds = append(instrumentIds, etf.GetUid())
+			}
+		}
+	case SHARES_AND_ETFS:
+		for _, share := range shares {
+			if len(instrumentIds) > INSTRUMENTS_MAX-1 {
+				break
+			}
+			exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
+			currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
+			if exchange && currency && !share.GetForQualInvestorFlag() {
+				instrumentIds = append(instrumentIds, share.GetUid())
+			}
+		}
+		for _, etf := range etfs {
+			if len(instrumentIds) > INSTRUMENTS_MAX-1 {
+				break
+			}
+			exchange := strings.EqualFold(etf.GetExchange(), EXCHANGE)
+			currency := strings.EqualFold(etf.GetCurrency(), CURRENCY)
+			if exchange && currency {
+				instrumentIds = append(instrumentIds, etf.GetUid())
+			}
 		}
 	}
 
 	logger.Infof("got %v instruments", len(instrumentIds))
-
-	intervalConfig := bot.IntervalStrategyConfig{
-		Instruments:            instrumentIds,
-		PreferredPositionPrice: 1000,
-		MaxPositionPrice:       5000,
-		TopInstrumentsQuantity: 10,
-		SellOut:                true,
-		StorageDBPath:          "examples/interval_bot/candles/candles.db",
-		StorageCandleInterval:  pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
-		StorageFromTime:        time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
-		StorageUpdate:          false,
-	}
+	// Добавляем инструменты в конфиг
+	intervalConfig.Instruments = instrumentIds
 	// создание интервального бота
 	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)
 	if err != nil {
 		logger.Fatalf("interval bot creating fail %v", err.Error())
 	}
-
-	// интервал для проверки
-	initDate := time.Date(2023, 1, 22, 0, 0, 0, 0, time.Local)
-	stopDate := time.Date(2023, 7, 7, 0, 0, 0, 0, time.Local)
-
-	TestWithConfig(ctx, intervalBot, logger, initDate, stopDate, bot.BacktestConfig{
-		Analyse:                 bot.MinProfit,
-		LowPercentile:           0,
-		HighPercentile:          0,
-		MinProfit:               0.3,
-		DaysToCalculateInterval: 2,
-		StopLoss:                2,
-		Commission:              0.05,
-	})
-
-	// TestWithMultipleConfigs(ctx, intervalBot, logger, initDate, stopDate)
+	// выбираем режим запуска
+	switch mode {
+	case TEST_WITH_CONFIG:
+		TestWithConfig(ctx, intervalBot, logger, initDate, stopDate, configToTest)
+	case TEST_WITH_MULTIPLE_CONFIGS:
+		TestWithMultipleConfigs(ctx, intervalBot, logger, initDate, stopDate)
+	}
 }
 
+// TestWithConfig - Проверка на одном конфиге
 func TestWithConfig(ctx context.Context, b *bot.Bot, logger investgo.Logger, start, stop time.Time, config bot.BacktestConfig) {
 	r, err := testConfig(ctx, b, start, stop, config)
 	if err != nil {
@@ -171,17 +243,18 @@ func TestWithConfig(ctx context.Context, b *bot.Bot, logger investgo.Logger, sta
 	logger.Infof("total  profit = %.3f average day percent = %.3f", r.totalProfit, r.averageDayPercentProfit)
 }
 
+// TestWithMultipleConfigs - Генерация мнодетсва конфигов и проверка на них
 func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Logger, start, stop time.Time) {
 	// слайс конфигов для бекстеста
 	bc := make([]bot.BacktestConfig, 0)
 	// начальные значения для стоп-лосса в процентах и кол-ва дней для расчета интервала=
-	stopLoss := 1.0
+	stopLoss := stopLossMin
 	// простым перебором генерируем конфиги с разными значениями
-	for stopLoss < 2 {
-		daysToCalculate := 1
-		for daysToCalculate < 4 {
-			minProfit := 0.2
-			for minProfit < 0.5 {
+	for stopLoss < stopLossMax {
+		daysToCalculate := daysToCalculateMin
+		for daysToCalculate < daysToCalculateMax {
+			minProfit := minProfitMin
+			for minProfit < minProfitMax {
 				bc = append(bc, bot.BacktestConfig{
 					Analyse:                 bot.MinProfit,
 					LowPercentile:           0,
@@ -194,18 +267,18 @@ func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Lo
 				minProfit += 0.1
 			}
 
-			//tempPerc := 1.0
-			//for tempPerc < 45 {
-			//	bc = append(bc, bot.BacktestConfig{
-			//		Analyse:                 bot.MathStat,
-			//		LowPercentile:           math.Round(tempPerc),
-			//		HighPercentile:          math.Round(100 - tempPerc),
-			//		MinProfit:               0.2,
-			//		StopLoss:                stopLoss,
-			//		DaysToCalculateInterval: daysToСalculate,
-			//	})
-			//	tempPerc += 1
-			//}
+			tempPerc := percentileMin
+			for tempPerc < percentileMax {
+				bc = append(bc, bot.BacktestConfig{
+					Analyse:                 bot.MathStat,
+					LowPercentile:           math.Round(tempPerc),
+					HighPercentile:          math.Round(100 - tempPerc),
+					MinProfit:               minProfit,
+					StopLoss:                stopLoss,
+					DaysToCalculateInterval: daysToCalculate,
+				})
+				tempPerc += 1
+			}
 			daysToCalculate++
 		}
 		stopLoss += 0.1
@@ -236,7 +309,6 @@ func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Lo
 			i, report.averageDayPercentProfit, report.totalProfit, report.bc.Analyse, report.bc.MinProfit, report.bc.LowPercentile,
 			report.bc.HighPercentile, report.bc.DaysToCalculateInterval, report.bc.StopLoss)
 	}
-
 }
 
 // testConfig - Бектест для конфига на времени start-stop
