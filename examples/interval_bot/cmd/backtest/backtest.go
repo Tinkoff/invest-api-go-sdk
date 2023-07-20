@@ -89,7 +89,7 @@ var (
 	daysToCalculateMax = 5
 
 	minProfitMin = 0.2
-	minProfitMax = 0.6
+	minProfitMax = 1.0
 
 	percentileMin = 3.0
 	percentileMax = 40.0
@@ -264,20 +264,20 @@ func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Lo
 					DaysToCalculateInterval: daysToCalculate,
 					Commission:              0.05,
 				})
-				minProfit += 0.1
-			}
 
-			tempPerc := percentileMin
-			for tempPerc < percentileMax {
-				bc = append(bc, bot.BacktestConfig{
-					Analyse:                 bot.MathStat,
-					LowPercentile:           math.Round(tempPerc),
-					HighPercentile:          math.Round(100 - tempPerc),
-					MinProfit:               minProfit,
-					StopLoss:                stopLoss,
-					DaysToCalculateInterval: daysToCalculate,
-				})
-				tempPerc += 1
+				tempPerc := percentileMin
+				for tempPerc < percentileMax {
+					bc = append(bc, bot.BacktestConfig{
+						Analyse:                 bot.MathStat,
+						LowPercentile:           math.Round(tempPerc),
+						HighPercentile:          math.Round(100 - tempPerc),
+						MinProfit:               minProfit,
+						StopLoss:                stopLoss,
+						DaysToCalculateInterval: daysToCalculate,
+					})
+					tempPerc += 1
+				}
+				minProfit += 0.1
 			}
 			daysToCalculate++
 		}
@@ -305,7 +305,7 @@ func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Lo
 
 	for i, report := range reports {
 		fmt.Printf("report %v:\naverage day profit percent =  %.3f\ntotal profit =  %.3f\nanalyse = %v\nminProfit = %v\nlowPercentile = %v\nhighPercentile = %v\n"+
-			"days = %v\nstopLoss = %v\n\n",
+			"days = %v\nstopLoss = %.3f\n\n",
 			i, report.averageDayPercentProfit, report.totalProfit, report.bc.Analyse, report.bc.MinProfit, report.bc.LowPercentile,
 			report.bc.HighPercentile, report.bc.DaysToCalculateInterval, report.bc.StopLoss)
 	}
