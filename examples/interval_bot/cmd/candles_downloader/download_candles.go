@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
@@ -24,6 +23,15 @@ const (
 	EXCHANGE = "MOEX"
 	// CURRENCY - Валюта для работы бота
 	CURRENCY = "RUB"
+	// DB_PATH - Путь к базе данных sqlite
+	DB_PATH = "examples/interval_bot/candles/candles.db"
+)
+
+var (
+	// FROM - Стартовое время для загрузки свечей
+	FROM = time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local)
+	// INTERVAL - Интервал для запроса свечей
+	INTERVAL = pb.CandleInterval_CANDLE_INTERVAL_1_MIN
 )
 
 func main() {
@@ -86,14 +94,13 @@ func main() {
 		}
 		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
 		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
-		if exchange && currency {
+		if exchange && currency && !share.GetForQualInvestorFlag() {
 			instrumentIds = append(instrumentIds, share.GetUid())
 		}
 	}
 	logger.Infof("got %v instruments", len(instrumentIds))
 	// инициализируем sqlite для сохранения исторических свечей по инструментам
-	path := fmt.Sprintf("examples/interval_bot/candles/candles.db")
-	db, err := initDB(path)
+	db, err := initDB(DB_PATH)
 	if err != nil {
 		logger.Fatalf(err.Error())
 	}
@@ -106,11 +113,11 @@ func main() {
 	// для каждого инструмента запрашиваем свечи и сохраняем в бд
 	mds := client.NewMarketDataServiceClient()
 	now := time.Now()
-	for _, id := range instrumentIds {
+	for i, id := range instrumentIds {
 		candles, err := mds.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
 			Instrument: id,
-			Interval:   pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
-			From:       time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
+			Interval:   INTERVAL,
+			From:       FROM,
 			To:         now,
 			File:       false,
 			FileName:   "",
@@ -122,7 +129,7 @@ func main() {
 		if err != nil {
 			logger.Errorf(err.Error())
 		}
-		logger.Infof("store in db complete")
+		logger.Infof("store in db complete candle %v/%v", i+1, len(instrumentIds))
 	}
 }
 
@@ -167,13 +174,8 @@ func storeCandlesInDB(db *sqlx.DB, uid string, update time.Time, hc []*pb.Histor
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := tx.Commit(); err != nil {
-			log.Printf(err.Error())
-		}
-	}()
 
-	insertCandle, err := tx.Prepare(`insert into candles (instrument_uid, open, close, high, low, volume, time, is_complete)
+	insertCandle, err := tx.Prepare(`insert into candles (instrument_uid, open, close, high, low, volume, time, is_complete) 
 		values (?, ?, ?, ?, ?, ?, ?, ?) `)
 	if err != nil {
 		return err
@@ -196,6 +198,10 @@ func storeCandlesInDB(db *sqlx.DB, uid string, update time.Time, hc []*pb.Histor
 		if err != nil {
 			return err
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
 	}
 
 	// записываем в базу время последнего обновления
