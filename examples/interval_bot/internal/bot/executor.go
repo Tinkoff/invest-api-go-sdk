@@ -3,10 +3,8 @@ package bot
 import (
 	"context"
 	"fmt"
-	"github.com/shopspring/decimal"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
-	"math"
 	"reflect"
 	"strings"
 	"sync"
@@ -225,7 +223,7 @@ func (e *Executor) BuyLimit(id string, price float64) error {
 	resp, err := e.ordersService.Buy(&investgo.PostOrderRequestShort{
 		InstrumentId: id,
 		Quantity:     currentInstrument.quantity,
-		Price:        floatToQuotation(price, currentInstrument.minPriceInc),
+		Price:        investgo.FloatToQuotation(price, currentInstrument.minPriceInc),
 		AccountId:    e.client.Config.AccountId,
 		OrderType:    pb.OrderType_ORDER_TYPE_LIMIT,
 		OrderId:      investgo.CreateUid(),
@@ -239,7 +237,7 @@ func (e *Executor) BuyLimit(id string, price float64) error {
 		orderId:         resp.GetOrderId(),
 	})
 	e.client.Logger.Infof("post buy limit order with %v price = %v", e.ticker(resp.GetInstrumentUid()),
-		floatToQuotation(price, currentInstrument.minPriceInc).ToFloat())
+		investgo.FloatToQuotation(price, currentInstrument.minPriceInc).ToFloat())
 	return nil
 }
 
@@ -292,7 +290,7 @@ func (e *Executor) SellLimit(id string, price float64) error {
 	resp, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
 		InstrumentId: id,
 		Quantity:     currentInstrument.quantity,
-		Price:        floatToQuotation(price, currentInstrument.minPriceInc),
+		Price:        investgo.FloatToQuotation(price, currentInstrument.minPriceInc),
 		AccountId:    e.client.Config.AccountId,
 		OrderType:    pb.OrderType_ORDER_TYPE_LIMIT,
 		OrderId:      investgo.CreateUid(),
@@ -305,7 +303,7 @@ func (e *Executor) SellLimit(id string, price float64) error {
 		orderId:         resp.GetOrderId(),
 	})
 	e.client.Logger.Infof("post sell limit order, with %v price = %v", e.ticker(resp.GetInstrumentUid()),
-		floatToQuotation(price, currentInstrument.minPriceInc).ToFloat())
+		investgo.FloatToQuotation(price, currentInstrument.minPriceInc).ToFloat())
 	return nil
 }
 
@@ -361,7 +359,7 @@ func (e *Executor) ReplaceLimit(id string, price float64) error {
 		OrderId:    state.orderId,
 		NewOrderId: investgo.CreateUid(),
 		Quantity:   currentInstrument.quantity,
-		Price:      floatToQuotation(price, currentInstrument.minPriceInc),
+		Price:      investgo.FloatToQuotation(price, currentInstrument.minPriceInc),
 		PriceType:  pb.PriceType_PRICE_TYPE_CURRENCY,
 	})
 	if err != nil {
@@ -374,27 +372,6 @@ func (e *Executor) ReplaceLimit(id string, price float64) error {
 	})
 	e.client.Logger.Infof("replace limit order with %v", e.ticker(id))
 	return nil
-}
-
-// floatToQuotation - Перевод float в Quotation
-func floatToQuotation(number float64, step *pb.Quotation) *pb.Quotation {
-	// делим дробь на дробь и округляем до ближайшего целого
-	k := math.Round(number / step.ToFloat())
-	// целое умножаем на дробный шаг и получаем готовое дробное значение
-	roundedNumber := step.ToFloat() * k
-	// разделяем дробную и целую части
-
-	decNumber := decimal.NewFromFloat(roundedNumber)
-
-	intPart := decNumber.IntPart()
-	fracPart := decNumber.Sub(decimal.NewFromInt(intPart))
-
-	nano := fracPart.Mul(decimal.NewFromInt(1000000000)).IntPart()
-
-	return &pb.Quotation{
-		Units: intPart,
-		Nano:  int32(nano),
-	}
 }
 
 // Positions - Данные о позициях счета
@@ -442,8 +419,8 @@ func (e *Executor) UpdateInterval(id string, i Interval) error {
 	// Если цена в интервале изменилась, заменяем лимитную заявку
 	switch state.instrumentState {
 	case TRY_TO_SELL:
-		p1 := floatToQuotation(i.high, currentInstrument.minPriceInc)
-		p2 := floatToQuotation(oldInterval.high, currentInstrument.minPriceInc)
+		p1 := investgo.FloatToQuotation(i.high, currentInstrument.minPriceInc)
+		p2 := investgo.FloatToQuotation(oldInterval.high, currentInstrument.minPriceInc)
 		if reflect.DeepEqual(p1, p2) {
 			return nil
 		}
@@ -452,8 +429,8 @@ func (e *Executor) UpdateInterval(id string, i Interval) error {
 			return err
 		}
 	case TRY_TO_BUY:
-		p1 := floatToQuotation(i.low, currentInstrument.minPriceInc)
-		p2 := floatToQuotation(oldInterval.low, currentInstrument.minPriceInc)
+		p1 := investgo.FloatToQuotation(i.low, currentInstrument.minPriceInc)
+		p2 := investgo.FloatToQuotation(oldInterval.low, currentInstrument.minPriceInc)
 		if reflect.DeepEqual(p1, p2) {
 			return nil
 		}

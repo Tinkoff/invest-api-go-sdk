@@ -343,7 +343,7 @@ func (b *Bot) analyseCandles(id string, candles []*pb.HistoricCandle) (*analyseR
 	// получили список средних цен
 	midPrices := make([]float64, 0, len(candles))
 	for _, candle := range candles {
-		midPrices = append(midPrices, floatToQuotation(midPrice(candle), instr.minPriceInc).ToFloat())
+		midPrices = append(midPrices, investgo.FloatToQuotation(midPrice(candle), instr.minPriceInc).ToFloat())
 	}
 	// ищем медиану выборки
 	median, err := stats.Median(midPrices)
@@ -398,7 +398,7 @@ func (b *Bot) analyseCandlesSimplest(id string, candles []*pb.HistoricCandle) (*
 			crosses: crosses(price, candles),
 		})
 		price += instr.minPriceInc.ToFloat()
-		price = floatToQuotation(price, instr.minPriceInc).ToFloat()
+		price = investgo.FloatToQuotation(price, instr.minPriceInc).ToFloat()
 	}
 
 	// находим цену с максимальным кол-вом пересечений и от нее начинаем расширять интервал
@@ -453,7 +453,7 @@ func (b *Bot) analyseCandlesByMathStat(id string, candles []*pb.HistoricCandle) 
 		return nil, fmt.Errorf("%v min price increment not found", id)
 	}
 	// maxVol - Кол-во пересечений с медианой
-	maxVol := crosses(floatToQuotation(median, instr.minPriceInc).ToFloat(), candles)
+	maxVol := crosses(investgo.FloatToQuotation(median, instr.minPriceInc).ToFloat(), candles)
 	// если интервал меньше чем минимальный профит, то не используем этот инструмент
 	if (i.high-i.low)/median*100 < b.StrategyConfig.MinProfit {
 		maxVol = 0
@@ -475,7 +475,7 @@ func midPrice(c *pb.HistoricCandle) float64 {
 func (b *Bot) findFixedInterval(mode float64, inc *pb.Quotation, candles []*pb.HistoricCandle) (Interval, float64) {
 	// минимальный профит в валюте / шаг цены = начальное кол-во шагов цены в интервале
 	k := int(math.Round((mode * b.StrategyConfig.MinProfit / 100) / inc.ToFloat()))
-	mode = floatToQuotation(mode, inc).ToFloat()
+	mode = investgo.FloatToQuotation(mode, inc).ToFloat()
 
 	upper, lower := mode, mode
 	var maxCrosses int64
@@ -687,7 +687,7 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 		// выражение фиксируемого убытка в разнице цены инструмента
 		loss := interval.low * (b.StrategyConfig.StopLossPercent / 100)
 		// цена, по которой нужно фиксировать убытки
-		lossPrice := floatToQuotation(interval.low-loss, currInstrument.minPriceInc).ToFloat()
+		lossPrice := investgo.FloatToQuotation(interval.low-loss, currInstrument.minPriceInc).ToFloat()
 		// идем по сегодняшним свечам инструмента
 		stopTradingToday := false
 		for i, candle := range todayCandles {
@@ -752,7 +752,7 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 func (b *Bot) findInterval(median float64, inc *pb.Quotation, candles []*pb.HistoricCandle) (Interval, float64) {
 	// минимальный профит в валюте / шаг цены = начальное кол-во шагов цены в интервале
 	k := int(math.Round((median * b.StrategyConfig.MinProfit / 100) / inc.ToFloat()))
-	median = floatToQuotation(median, inc).ToFloat()
+	median = investgo.FloatToQuotation(median, inc).ToFloat()
 	// начальное значение для границ интервала = медиана
 	upper, lower := median, median
 	// расширяемся до MinProfit
