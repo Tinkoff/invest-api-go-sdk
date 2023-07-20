@@ -24,7 +24,7 @@ const (
 	// CURRENCY - Валюта для работы бота
 	CURRENCY = "RUB"
 	// MINUTES - Интервал обновления исторических свечей для расчета нового коридора цен в минутах
-	MINUTES = 10
+	MINUTES = 5
 )
 
 func main() {
@@ -35,6 +35,7 @@ func main() {
 	}
 
 	sigs := make(chan os.Signal, 1)
+	defer close(sigs)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -88,7 +89,7 @@ func main() {
 		}
 		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
 		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
-		if exchange && currency && !share.GetForQualInvestorFlag() {
+		if exchange && currency && !share.GetForQualInvestorFlag() && share.GetUid() != "7c9454d0-af4a-4380-82d5-394ee7c9b037" {
 			instrumentIds = append(instrumentIds, share.GetUid())
 		}
 	}
@@ -97,17 +98,17 @@ func main() {
 	intervalConfig := bot.IntervalStrategyConfig{
 		Instruments:             instrumentIds,
 		PreferredPositionPrice:  200,
-		MaxPositionPrice:        500,
-		MinProfit:               0.2,
+		MaxPositionPrice:        600,
+		MinProfit:               0.3,
 		IntervalUpdateDelay:     time.Minute * MINUTES,
-		TopInstrumentsQuantity:  10,
+		TopInstrumentsQuantity:  15,
 		SellOut:                 true,
 		StorageDBPath:           "examples/interval_bot/candles/candles.db",
 		StorageCandleInterval:   pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
 		StorageFromTime:         time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
 		StorageUpdate:           true,
-		DaysToCalculateInterval: 1,
-		StopLossPercent:         2,
+		DaysToCalculateInterval: 3,
+		StopLossPercent:         1.8,
 		AnalyseLowPercentile:    0,
 		AnalyseHighPercentile:   0,
 	}
