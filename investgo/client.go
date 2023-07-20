@@ -32,7 +32,7 @@ func NewClient(ctx context.Context, conf Config, l Logger) (*Client, error) {
 	ctx = context.WithValue(ctx, authKey, fmt.Sprintf("Bearer %s", conf.Token))
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-app-name", conf.AppName)
 
-	Opts := []retry.CallOption{
+	opts := []retry.CallOption{
 		retry.WithCodes(codes.Unavailable, codes.Internal),
 		retry.WithBackoff(retry.BackoffLinear(500 * time.Millisecond)),
 		retry.WithMax(conf.MaxRetries),
@@ -45,17 +45,17 @@ func NewClient(ctx context.Context, conf Config, l Logger) (*Client, error) {
 	}
 
 	streamInterceptors := []grpc.StreamClientInterceptor{
-		retry.StreamClientInterceptor(Opts...),
+		retry.StreamClientInterceptor(opts...),
 	}
 
 	var unaryInterceptors []grpc.UnaryClientInterceptor
 	if conf.DisableResourceExhaustedRetry {
 		unaryInterceptors = []grpc.UnaryClientInterceptor{
-			retry.UnaryClientInterceptor(Opts...),
+			retry.UnaryClientInterceptor(opts...),
 		}
 	} else {
 		unaryInterceptors = []grpc.UnaryClientInterceptor{
-			retry.UnaryClientInterceptor(Opts...),
+			retry.UnaryClientInterceptor(opts...),
 			retry.UnaryClientInterceptorRE(exhaustedOpts...),
 		}
 	}

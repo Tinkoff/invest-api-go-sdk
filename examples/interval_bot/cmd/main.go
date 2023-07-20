@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"github.com/tinkoff/invest-api-go-sdk/examples/ob_bot/internal/bot"
+	"github.com/tinkoff/invest-api-go-sdk/examples/interval_bot/internal/bot"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"go.uber.org/zap"
@@ -17,13 +17,14 @@ import (
 )
 
 const (
-	// SHARES_NUM - Количество акций для торгов
-	SHARES_NUM = 30
+	// INSTRUMENTS_MAX - Максимальное кол-во инструментов
+	INSTRUMENTS_MAX = 300
 	// EXCHANGE - Биржа на которой будет работать бот
 	EXCHANGE = "MOEX"
-	// CURRENCY - Бот на стакане торгует бумагами только в одной валюте. Отбор бумаг, проверка баланса, расчет профита
-	// делается в валюте CURRENCY.
+	// CURRENCY - Валюта для работы бота
 	CURRENCY = "RUB"
+	// MINUTES - Интервал обновления исторических свечей для расчета нового коридора цен в минутах
+	MINUTES = 5
 )
 
 func main() {
@@ -71,6 +72,8 @@ func main() {
 
 	// для создания стратеги нужно ее сконфигурировать, для этого получим список идентификаторов инструментов,
 	// которыми предстоит торговать
+	// слайс идентификаторов торговых инструментов instrument_uid
+	instrumentIds := make([]string, 0, 300)
 	insrtumentsService := client.NewInstrumentsServiceClient()
 	// получаем список акций доступных для торговли через investAPI
 	instrumentsResp, err := insrtumentsService.Shares(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
@@ -78,47 +81,48 @@ func main() {
 		logger.Errorf(err.Error())
 	}
 	// слайс идентификаторов торговых инструментов instrument_uid
-	// рублевые акции с московской биржи
-	instrumentIds := make([]string, 0, 300)
+	// акции с московской биржи
 	shares := instrumentsResp.GetInstruments()
 	for _, share := range shares {
-		if len(instrumentIds) > SHARES_NUM-1 {
+		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
 			break
 		}
 		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
 		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
-		if exchange && currency {
+		if exchange && currency && !share.GetForQualInvestorFlag() && share.GetUid() != "7c9454d0-af4a-4380-82d5-394ee7c9b037" {
 			instrumentIds = append(instrumentIds, share.GetUid())
 		}
 	}
 	logger.Infof("got %v instruments", len(instrumentIds))
 
-	instruments := instrumentIds
-	// instruments := []string{"6afa6f80-03a7-4d83-9cf0-c19d7d021f76", "e6123145-9665-43e0-8413-cd61b8aa9b13"}
-
-	// конфиг стратегии бота на стакане
-	orderBookConfig := bot.OrderBookStrategyConfig{
-		Instruments:          instruments,
-		Currency:             CURRENCY,
-		RequiredMoneyBalance: 200000,
-		Depth:                20,
-		BuyRatio:             2,
-		SellRatio:            2,
-		MinProfit:            0.5,
-		SellOut:              true,
+	intervalConfig := bot.IntervalStrategyConfig{
+		Instruments:             instrumentIds,
+		PreferredPositionPrice:  200,
+		MaxPositionPrice:        600,
+		MinProfit:               0.3,
+		IntervalUpdateDelay:     time.Minute * MINUTES,
+		TopInstrumentsQuantity:  15,
+		SellOut:                 true,
+		StorageDBPath:           "examples/interval_bot/candles/candles.db",
+		StorageCandleInterval:   pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
+		StorageFromTime:         time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
+		StorageUpdate:           true,
+		DaysToCalculateInterval: 3,
+		StopLossPercent:         1.8,
+		AnalyseLowPercentile:    0,
+		AnalyseHighPercentile:   0,
 	}
-
-	// создание бота на стакане
-	botOnOrderBook, err := bot.NewBot(ctx, client, orderBookConfig)
+	// создание интервального бота
+	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)
 	if err != nil {
-		logger.Fatalf("bot on order book creating fail %v", err.Error())
+		logger.Fatalf("interval bot creating fail %v", err.Error())
 	}
 
 	wg := &sync.WaitGroup{}
 	// Таймер для Московской биржи, отслеживает расписание и дает сигналы, на остановку/запуск бота
 	// cancelAhead - Событие STOP будет отправлено в канал за cancelAhead до конца торгов
 	cancelAhead := time.Minute * 5
-	t := investgo.NewTimer(client, EXCHANGE, cancelAhead)
+	t := investgo.NewTimer(client, "MOEX", cancelAhead)
 
 	// запуск таймера
 	wg.Add(1)
@@ -153,17 +157,16 @@ func main() {
 				switch ev {
 				case investgo.START:
 					// запуск бота
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
-						err = botOnOrderBook.Run()
-						if err != nil {
-							logger.Errorf(err.Error())
-						}
-					}()
+					err = intervalBot.Run()
+					if err != nil {
+						logger.Fatalf(err.Error())
+					}
 				case investgo.STOP:
 					// остановка бота
-					botOnOrderBook.Stop()
+					err = intervalBot.Stop()
+					if err != nil {
+						logger.Errorf(err.Error())
+					}
 				}
 			}
 		}
