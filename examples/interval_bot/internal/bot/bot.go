@@ -14,6 +14,7 @@ import (
 	"time"
 )
 
+// IntervalStrategyConfig - Конфигурация стратегии интервального бота
 type IntervalStrategyConfig struct {
 	// Instruments - слайс идентификаторов инструментов
 	Instruments []string
@@ -45,12 +46,35 @@ type IntervalStrategyConfig struct {
 	AnalyseLowPercentile float64
 	// AnalyseHighPercentile - Верхний процентиль для расчета интервала
 	AnalyseHighPercentile float64
+	// Analyse - Тип анализа исторических свечей при расчете интервала
+	Analyse AnalyseType
 }
 
+// AnalyseType - Тип анализа исторических свечей при расчете интервала
+type AnalyseType int
+
+const (
+	// MATH_STAT - Анализ свечей при помощи пакета stats. Интервал для цены это AnalyseLowPercentile-AnalyseHighPercentile
+	// из выборки средних цен свечей за последние DaysToCalculateInterval дней
+	MATH_STAT AnalyseType = iota
+	// BEST_WIDTH - Анализ свечей происходит так:
+	// Вычисляется медиана распределения выборки средних цен свечей за последние DaysToCalculateInterval дней, от нее берется
+	// сначала фиксированный интервал шириной MinProfit процентов от медианы, далее если это выгодно интервал расширяется.
+	// Так же есть возможность задать фиксированный интервал в процентах.
+	BEST_WIDTH
+	// SIMPLEST - Поиск интервала простым перебором
+	SIMPLEST
+)
+
+// Interval - Интервал цены. Low - для покупки, high - для продажи
 type Interval struct {
 	high, low float64
 }
 
+// AnalyseFunc - Функция для анализа свечей и расчета интервала
+type AnalyseFunc func(id string, candles []*pb.HistoricCandle) (*analyseResponse, error)
+
+// Bot - Интервальный бот
 type Bot struct {
 	StrategyConfig IntervalStrategyConfig
 	Client         *investgo.Client
@@ -59,13 +83,33 @@ type Bot struct {
 	cancelBot context.CancelFunc
 	wg        *sync.WaitGroup
 
-	executor *Executor
-	storage  *CandlesStorage
+	executor       *Executor
+	storage        *CandlesStorage
+	analyseCandles AnalyseFunc
 }
 
+// NewBot - Создание нового интервального бота по конфигу
 func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrategyConfig) (*Bot, error) {
 	botCtx, cancel := context.WithCancel(ctx)
 	wg := &sync.WaitGroup{}
+	b := &Bot{
+		StrategyConfig: config,
+		Client:         client,
+		ctx:            botCtx,
+		cancelBot:      cancel,
+		wg:             wg,
+	}
+	// выбор функции для анализа свечей
+	switch config.Analyse {
+	case MATH_STAT:
+		b.analyseCandles = b.analyseCandlesByMathStat
+	case BEST_WIDTH:
+		b.analyseCandles = b.analyseCandlesBestWidth
+	case SIMPLEST:
+		b.analyseCandles = b.analyseCandlesSimplest
+	default:
+		b.analyseCandles = b.analyseCandlesBestWidth
+	}
 	// по конфигу стратегии заполняем map для executor
 	instrumentService := client.NewInstrumentsServiceClient()
 	marketDataService := client.NewMarketDataServiceClient()
@@ -128,24 +172,19 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 		}
 	}
 	// меняем инструменты в конфиге
-	config.Instruments = preferredInstruments
+	b.StrategyConfig.Instruments = preferredInstruments
 	// создаем хранилище для свечей
 	storage, err := NewCandlesStorage(config.StorageDBPath, config.StorageUpdate, instrumentsForStorage, client.Logger, marketDataService)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
-	return &Bot{
-		StrategyConfig: config,
-		Client:         client,
-		ctx:            botCtx,
-		cancelBot:      cancel,
-		wg:             wg,
-		executor:       NewExecutor(ctx, client, instrumentsForExecutor),
-		storage:        storage,
-	}, nil
+	b.storage = storage
+	b.executor = NewExecutor(ctx, client, instrumentsForExecutor)
+	return b, nil
 }
 
+// Run - Запуск интервального бота
 func (b *Bot) Run() error {
 	// отбор топ инструментов по волатильности
 
@@ -328,14 +367,16 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 	return nil
 }
 
+// analyseResponse - Результат анализа исторических свечей инструмента
 type analyseResponse struct {
 	id            string
 	interval      Interval
 	volatilityMax float64
 }
 
-// analyseCandles - Расчет максимальной волатильности и интервала цены для инструмента
-func (b *Bot) analyseCandles(id string, candles []*pb.HistoricCandle) (*analyseResponse, error) {
+// analyseCandlesBestWidth - Расчет максимальной волатильности и интервала цены для инструмента
+// через медиану и расширение интервала
+func (b *Bot) analyseCandlesBestWidth(id string, candles []*pb.HistoricCandle) (*analyseResponse, error) {
 	instr, ok := b.executor.instruments[id]
 	if !ok {
 		return nil, fmt.Errorf("%v min price increment not found", id)
@@ -423,7 +464,8 @@ func (b *Bot) analyseCandlesSimplest(id string, candles []*pb.HistoricCandle) (*
 	}, nil
 }
 
-// analyseCandlesByMathStat - Расчет максимальной волатильности и интервала цены для инструмента
+// analyseCandlesByMathStat - Расчет максимальной волатильности и интервала цены для инструмента через
+// медиану и процентили распределения средних цен
 func (b *Bot) analyseCandlesByMathStat(id string, candles []*pb.HistoricCandle) (*analyseResponse, error) {
 	// получили список средних цен
 	midPrices := make([]float64, 0, len(candles))
@@ -448,21 +490,21 @@ func (b *Bot) analyseCandlesByMathStat(id string, candles []*pb.HistoricCandle) 
 		high: high,
 		low:  low,
 	}
-	instr, ok := b.executor.instruments[id]
-	if !ok {
-		return nil, fmt.Errorf("%v min price increment not found", id)
-	}
-	// maxVol - Кол-во пересечений с медианой
-	maxVol := crosses(investgo.FloatToQuotation(median, instr.minPriceInc).ToFloat(), candles)
+	//instr, ok := b.executor.instruments[id]
+	//if !ok {
+	//	return nil, fmt.Errorf("%v min price increment not found", id)
+	//}
+	// volatility = maxCrosses * (width/mode * 100)
+	// maxVol := crosses(investgo.FloatToQuotation(median, instr.minPriceInc).ToFloat(), candles)
+	maxCrosses := intervalCrosses(high, low, candles)
 	// если интервал меньше чем минимальный профит, то не используем этот инструмент
 	if (i.high-i.low)/median*100 < b.StrategyConfig.MinProfit {
-		maxVol = 0
+		maxCrosses = 0
 	}
-
 	return &analyseResponse{
 		id:            id,
 		interval:      i,
-		volatilityMax: float64(maxVol),
+		volatilityMax: ((high - low) / median * 100) * float64(maxCrosses),
 	}, nil
 }
 
@@ -498,6 +540,60 @@ func (b *Bot) findFixedInterval(mode float64, inc *pb.Quotation, candles []*pb.H
 		high: upper,
 		low:  lower,
 	}, ((upper - lower) / mode * 100) * float64(maxCrosses)
+}
+
+// findInterval - Поиск интервала цены от медианы, начальное значение ширины = MinProfit, далее расширяется если это выгодно
+func (b *Bot) findInterval(median float64, inc *pb.Quotation, candles []*pb.HistoricCandle) (Interval, float64) {
+	// минимальный профит в валюте / шаг цены = начальное кол-во шагов цены в интервале
+	k := int(math.Round((median * b.StrategyConfig.MinProfit / 100) / inc.ToFloat()))
+	median = investgo.FloatToQuotation(median, inc).ToFloat()
+	// начальное значение для границ интервала = медиана
+	upper, lower := median, median
+	// расширяемся до MinProfit
+	for i := 1; i <= k; i++ {
+		upper = upper + inc.ToFloat()
+		lower = lower - inc.ToFloat()
+
+		upperCrosses := crosses(upper, candles)
+		lowerCrosses := crosses(lower, candles)
+
+		if upperCrosses > lowerCrosses {
+			lower = lower + inc.ToFloat()
+		} else {
+			upper = upper - inc.ToFloat()
+		}
+	}
+
+	// volatility = maxCrosses * (width/mode * 100)
+	// далее, если не убывает максимальная волатильность, расширяем интервал
+
+	for {
+		u, l := upper, lower
+		mv := ((u - l) / median * 100) * float64(intervalCrosses(u, l, candles))
+
+		upper = upper + inc.ToFloat()
+		lower = lower - inc.ToFloat()
+
+		upperCrosses := crosses(upper, candles)
+		lowerCrosses := crosses(lower, candles)
+
+		if upperCrosses > lowerCrosses {
+			lower = lower + inc.ToFloat()
+		} else {
+			upper = upper - inc.ToFloat()
+		}
+
+		tempVolatility := ((upper - lower) / median * 100) * float64(intervalCrosses(upper, lower, candles))
+
+		if tempVolatility-mv <= 0 {
+			upper, lower = u, l
+			break
+		}
+	}
+	return Interval{
+		high: upper,
+		low:  lower,
+	}, ((upper - lower) / median * 100) * float64(intervalCrosses(upper, lower, candles))
 }
 
 // intervalCrosses - Количество пересечений интервала от l до h и свечей candles
@@ -559,14 +655,6 @@ func timeIntervalByDays(reqDays int, now time.Time) (from time.Time, to time.Tim
 	return from, to
 }
 
-// AnalyseType - Тип анализа исторических свечей при расчете интервала
-type AnalyseType int
-
-const (
-	MathStat AnalyseType = iota
-	MinProfit
-)
-
 type BacktestConfig struct {
 	// Analyse - Тип анализа исторических свечей при расчете интервала
 	Analyse AnalyseType
@@ -588,17 +676,29 @@ type BacktestConfig struct {
 func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, error) {
 	// по конфигу бектеста меняются конфигурация стратегии
 	switch bc.Analyse {
-	case MathStat:
+	case MATH_STAT:
 		b.StrategyConfig.AnalyseLowPercentile = bc.LowPercentile
 		b.StrategyConfig.AnalyseHighPercentile = bc.HighPercentile
 
 		b.StrategyConfig.MinProfit = bc.MinProfit
 		b.StrategyConfig.StopLossPercent = bc.StopLoss
 		b.StrategyConfig.DaysToCalculateInterval = bc.DaysToCalculateInterval
-	case MinProfit:
+	case BEST_WIDTH, SIMPLEST:
 		b.StrategyConfig.MinProfit = bc.MinProfit
 		b.StrategyConfig.StopLossPercent = bc.StopLoss
 		b.StrategyConfig.DaysToCalculateInterval = bc.DaysToCalculateInterval
+	}
+
+	// выбор функции для анализа свечей
+	switch bc.Analyse {
+	case MATH_STAT:
+		b.analyseCandles = b.analyseCandlesByMathStat
+	case BEST_WIDTH:
+		b.analyseCandles = b.analyseCandlesBestWidth
+	case SIMPLEST:
+		b.analyseCandles = b.analyseCandlesSimplest
+	default:
+		b.analyseCandles = b.analyseCandlesBestWidth
 	}
 
 	// загружаем минутные свечи по всем инструментам для анализа волатильности
@@ -628,13 +728,7 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 				volatilityMax: 0,
 			}
 		} else {
-			switch bc.Analyse {
-			case MathStat:
-				resp, err = b.analyseCandlesByMathStat(tempId, hc)
-			case MinProfit:
-				resp, err = b.analyseCandles(tempId, hc)
-				// resp, err = b.analyseCandlesSimplest(tempId, hc)
-			}
+			resp, err = b.analyseCandles(tempId, hc)
 		}
 		if err != nil {
 			return 0, 0, err
@@ -746,58 +840,4 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 	}
 
 	return totalProfit, (totalProfit / requiredMoneyForStart) * 100, nil
-}
-
-// findInterval - Поиск интервала цены от медианы, начальное значение ширины = MinProfit, далее расширяется если это выгодно
-func (b *Bot) findInterval(median float64, inc *pb.Quotation, candles []*pb.HistoricCandle) (Interval, float64) {
-	// минимальный профит в валюте / шаг цены = начальное кол-во шагов цены в интервале
-	k := int(math.Round((median * b.StrategyConfig.MinProfit / 100) / inc.ToFloat()))
-	median = investgo.FloatToQuotation(median, inc).ToFloat()
-	// начальное значение для границ интервала = медиана
-	upper, lower := median, median
-	// расширяемся до MinProfit
-	for i := 1; i <= k; i++ {
-		upper = upper + inc.ToFloat()
-		lower = lower - inc.ToFloat()
-
-		upperCrosses := crosses(upper, candles)
-		lowerCrosses := crosses(lower, candles)
-
-		if upperCrosses > lowerCrosses {
-			lower = lower + inc.ToFloat()
-		} else {
-			upper = upper - inc.ToFloat()
-		}
-	}
-
-	// volatility = maxCrosses * (width/mode * 100)
-	// далее, если не убывает максимальная волатильность, расширяем интервал
-
-	for {
-		u, l := upper, lower
-		mv := ((u - l) / median * 100) * float64(intervalCrosses(u, l, candles))
-
-		upper = upper + inc.ToFloat()
-		lower = lower - inc.ToFloat()
-
-		upperCrosses := crosses(upper, candles)
-		lowerCrosses := crosses(lower, candles)
-
-		if upperCrosses > lowerCrosses {
-			lower = lower + inc.ToFloat()
-		} else {
-			upper = upper - inc.ToFloat()
-		}
-
-		tempVolatility := ((upper - lower) / median * 100) * float64(intervalCrosses(upper, lower, candles))
-
-		if tempVolatility-mv <= 0 {
-			upper, lower = u, l
-			break
-		}
-	}
-	return Interval{
-		high: upper,
-		low:  lower,
-	}, ((upper - lower) / median * 100) * float64(intervalCrosses(upper, lower, candles))
 }
