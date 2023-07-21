@@ -16,6 +16,14 @@ import (
 	"time"
 )
 
+// Параметры для изменения конфигурации загрузчика свечей
+var (
+	// FROM - Стартовое время для загрузки свечей
+	FROM = time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local)
+	// INTERVAL - Интервал для запроса свечей
+	INTERVAL = pb.CandleInterval_CANDLE_INTERVAL_1_MIN
+)
+
 const (
 	// INSTRUMENTS_MAX - Максимальное кол-во инструментов
 	INSTRUMENTS_MAX = 300
@@ -25,13 +33,6 @@ const (
 	CURRENCY = "RUB"
 	// DB_PATH - Путь к базе данных sqlite
 	DB_PATH = "examples/interval_bot/candles/candles.db"
-)
-
-var (
-	// FROM - Стартовое время для загрузки свечей
-	FROM = time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local)
-	// INTERVAL - Интервал для запроса свечей
-	INTERVAL = pb.CandleInterval_CANDLE_INTERVAL_1_MIN
 )
 
 func main() {

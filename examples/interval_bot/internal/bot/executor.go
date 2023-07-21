@@ -561,7 +561,7 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 				}
 				orderTrades := t.GetTrades()
 				for i, trade := range orderTrades {
-					e.client.Logger.Infof("trade %v = %v\n", i, trade)
+					e.client.Logger.Infof("trade %v = %v", i, trade)
 				}
 				uid := t.GetInstrumentUid()
 				if len(orderTrades) < 1 {

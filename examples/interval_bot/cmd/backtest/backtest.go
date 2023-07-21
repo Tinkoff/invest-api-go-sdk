@@ -20,6 +20,51 @@ import (
 	"time"
 )
 
+// Параметры для изменения конфигурации бектеста
+var (
+	// Интервал для проверки
+	initDate = time.Date(2023, 1, 22, 0, 0, 0, 0, time.Local)
+	stopDate = time.Date(2023, 7, 7, 0, 0, 0, 0, time.Local)
+	// Критерий для отбора бумаг. Акции, фонды, акции и фонды
+	selection = SHARES_AND_ETFS
+	// Режим запуска теста, на одном конфиге или перебор сгенерированных конфигов
+	mode = TEST_WITH_CONFIG
+	// Конфигурация стратегии, остальные поля заполняются из конфига бектеста
+	intervalConfig = bot.IntervalStrategyConfig{
+		PreferredPositionPrice: 1000,
+		MaxPositionPrice:       5000,
+		TopInstrumentsQuantity: 10,
+		SellOut:                true,
+		StorageDBPath:          "examples/interval_bot/candles/candles.db",
+		StorageCandleInterval:  pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
+		StorageFromTime:        time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
+		StorageUpdate:          false,
+	}
+	// Конфиг бектеста для режима TEST_WITH_CONFIG
+	configToTest = bot.BacktestConfig{
+		Analyse:                 bot.MinProfit,
+		LowPercentile:           0,
+		HighPercentile:          0,
+		MinProfit:               0.3,
+		DaysToCalculateInterval: 4,
+		StopLoss:                1.8,
+		// Для тарифа "Трейдер" комиссия за сделку с акцией составляет 0.05% от стоимости сделки
+		Commission: 0.05,
+	}
+	// Границы параметров конфига бектеста для генерации
+	stopLossMin = 0.5
+	stopLossMax = 2.0
+
+	daysToCalculateMin = 1
+	daysToCalculateMax = 5
+
+	minProfitMin = 0.2
+	minProfitMax = 1.0
+
+	percentileMin = 3.0
+	percentileMax = 40.0
+)
+
 // InstrumentsSelection - Типы инструментов для отбора
 type InstrumentsSelection int
 
@@ -49,50 +94,6 @@ const (
 	EXCHANGE = "MOEX"
 	// CURRENCY - Валюта для работы бота
 	CURRENCY = "RUB"
-)
-
-var (
-	// Интервал для проверки
-	initDate = time.Date(2023, 6, 22, 0, 0, 0, 0, time.Local)
-	stopDate = time.Date(2023, 7, 7, 0, 0, 0, 0, time.Local)
-	// Критерий для отбора бумаг. Акции, фонды, акции и фонды
-	selection = SHARES_AND_ETFS
-	// Режим запуска теста, на одном конфиге или перебор сгенерированных конфигов
-	mode = TEST_WITH_MULTIPLE_CONFIGS
-	// Конфигурация стратегии, остальные поля заполняются из конфига бектеста
-	intervalConfig = bot.IntervalStrategyConfig{
-		PreferredPositionPrice: 1000,
-		MaxPositionPrice:       5000,
-		TopInstrumentsQuantity: 10,
-		SellOut:                true,
-		StorageDBPath:          "examples/interval_bot/candles/candles.db",
-		StorageCandleInterval:  pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
-		StorageFromTime:        time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
-		StorageUpdate:          false,
-	}
-	// Конфиг бектеста для режима TEST_WITH_CONFIG
-	configToTest = bot.BacktestConfig{
-		Analyse:                 bot.MinProfit,
-		LowPercentile:           0,
-		HighPercentile:          0,
-		MinProfit:               0.3,
-		DaysToCalculateInterval: 2,
-		StopLoss:                2,
-		// Для тарифа "Трейдер" комиссия за сделку с акцией составляет 0.05% от стоимости сделки
-		Commission: 0.05,
-	}
-	// Границы параметров конфига бектеста для генерации
-	stopLossMin = 0.5
-	stopLossMax = 2.0
-
-	daysToCalculateMin = 1
-	daysToCalculateMax = 5
-
-	minProfitMin = 0.2
-	minProfitMax = 1.0
-
-	percentileMin = 3.0
-	percentileMax = 40.0
 )
 
 // Report - Отчет о тесте на конкретном конфиге
@@ -240,14 +241,14 @@ func TestWithConfig(ctx context.Context, b *bot.Bot, logger investgo.Logger, sta
 	if err != nil {
 		logger.Errorf(err.Error())
 	}
-	logger.Infof("total  profit = %.3f average day percent = %.3f", r.totalProfit, r.averageDayPercentProfit)
+	logger.Infof("total profit = %.3f average day profit in percent = %.3f", r.totalProfit, r.averageDayPercentProfit)
 }
 
 // TestWithMultipleConfigs - Генерация мнодетсва конфигов и проверка на них
 func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Logger, start, stop time.Time) {
 	// слайс конфигов для бекстеста
 	bc := make([]bot.BacktestConfig, 0)
-	// начальные значения для стоп-лосса в процентах и кол-ва дней для расчета интервала=
+	// начальные значения для стоп-лосса в процентах и кол-ва дней для расчета интервала
 	stopLoss := stopLossMin
 	// простым перебором генерируем конфиги с разными значениями
 	for stopLoss < stopLossMax {

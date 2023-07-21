@@ -16,6 +16,31 @@ import (
 	"time"
 )
 
+// Параметры для изменения конфигурации бота
+var (
+	intervalConfig = bot.IntervalStrategyConfig{
+		PreferredPositionPrice:  200,
+		MaxPositionPrice:        600,
+		TopInstrumentsQuantity:  15,
+		MinProfit:               0.3,
+		DaysToCalculateInterval: 3,
+		StopLossPercent:         1.8,
+		AnalyseLowPercentile:    0,
+		AnalyseHighPercentile:   0,
+		// Параметры ниже не влияют на успех стратегии
+		IntervalUpdateDelay:   time.Minute * MINUTES,
+		SellOut:               true,
+		StorageDBPath:         "examples/interval_bot/candles/candles.db",
+		StorageCandleInterval: pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
+		StorageFromTime:       time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
+		StorageUpdate:         true,
+	}
+	// Критерий для отбора бумаг. Акции, фонды, акции и фонды
+	selection = SHARES
+	// cancelAhead - Событие STOP для остановки будет отправлено в канал за cancelAhead до конца торгов
+	cancelAhead = time.Minute * 5
+)
+
 const (
 	// INSTRUMENTS_MAX - Максимальное кол-во инструментов
 	INSTRUMENTS_MAX = 300
@@ -25,6 +50,18 @@ const (
 	CURRENCY = "RUB"
 	// MINUTES - Интервал обновления исторических свечей для расчета нового коридора цен в минутах
 	MINUTES = 5
+)
+
+// InstrumentsSelection - Типы инструментов для отбора
+type InstrumentsSelection int
+
+const (
+	// SHARES - Акции
+	SHARES InstrumentsSelection = iota
+	// ETFS - Фонды
+	ETFS
+	// SHARES_AND_ETFS - Акции и фонды
+	SHARES_AND_ETFS
 )
 
 func main() {
@@ -73,45 +110,62 @@ func main() {
 	// для создания стратеги нужно ее сконфигурировать, для этого получим список идентификаторов инструментов,
 	// которыми предстоит торговать
 	// слайс идентификаторов торговых инструментов instrument_uid
-	instrumentIds := make([]string, 0, 300)
+	instrumentIds := make([]string, 0, INSTRUMENTS_MAX)
 	insrtumentsService := client.NewInstrumentsServiceClient()
-	// получаем список акций доступных для торговли через investAPI
-	instrumentsResp, err := insrtumentsService.Shares(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
+	// получаем список фондов доступных для торговли через investAPI
+	etfsResp, err := insrtumentsService.Etfs(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
 	if err != nil {
 		logger.Errorf(err.Error())
 	}
-	// слайс идентификаторов торговых инструментов instrument_uid
-	// акции с московской биржи
-	shares := instrumentsResp.GetInstruments()
+	// рублевые фонды с московской биржи
+	etfs := etfsResp.GetInstruments()
+	// получаем список акций доступных для торговли через investAPI
+	sharesResp, err := insrtumentsService.Shares(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
+	if err != nil {
+		logger.Errorf(err.Error())
+	}
+	// рублевые акции c московской биржи
+	shares := sharesResp.GetInstruments()
+	// результаты отбора фондов и акций по бирже и валюте
+	shareIds := make([]string, 0)
+	etfsIds := make([]string, 0)
+
 	for _, share := range shares {
-		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
+		if len(shareIds) > INSTRUMENTS_MAX-1 {
 			break
 		}
 		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
 		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
-		if exchange && currency && !share.GetForQualInvestorFlag() && share.GetUid() != "7c9454d0-af4a-4380-82d5-394ee7c9b037" {
-			instrumentIds = append(instrumentIds, share.GetUid())
+		if exchange && currency && !share.GetForQualInvestorFlag() {
+			shareIds = append(shareIds, share.GetUid())
 		}
+	}
+
+	for _, etf := range etfs {
+		if len(etfsIds) > INSTRUMENTS_MAX-1 {
+			break
+		}
+		exchange := strings.EqualFold(etf.GetExchange(), EXCHANGE)
+		currency := strings.EqualFold(etf.GetCurrency(), CURRENCY)
+		if exchange && currency {
+			etfsIds = append(etfsIds, etf.GetUid())
+		}
+	}
+	// заполняем instrumentIds в зависимости от выбранного selection
+	switch selection {
+	case SHARES:
+		instrumentIds = shareIds
+	case ETFS:
+		instrumentIds = etfsIds
+	case SHARES_AND_ETFS:
+		instrumentIds = append(instrumentIds, shareIds...)
+		instrumentIds = append(instrumentIds, etfsIds...)
 	}
 	logger.Infof("got %v instruments", len(instrumentIds))
 
-	intervalConfig := bot.IntervalStrategyConfig{
-		Instruments:             instrumentIds,
-		PreferredPositionPrice:  200,
-		MaxPositionPrice:        600,
-		MinProfit:               0.3,
-		IntervalUpdateDelay:     time.Minute * MINUTES,
-		TopInstrumentsQuantity:  15,
-		SellOut:                 true,
-		StorageDBPath:           "examples/interval_bot/candles/candles.db",
-		StorageCandleInterval:   pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
-		StorageFromTime:         time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
-		StorageUpdate:           true,
-		DaysToCalculateInterval: 3,
-		StopLossPercent:         1.8,
-		AnalyseLowPercentile:    0,
-		AnalyseHighPercentile:   0,
-	}
+	// передаем инструменты в конфиг
+	intervalConfig.Instruments = instrumentIds
+
 	// создание интервального бота
 	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)
 	if err != nil {
@@ -120,9 +174,7 @@ func main() {
 
 	wg := &sync.WaitGroup{}
 	// Таймер для Московской биржи, отслеживает расписание и дает сигналы, на остановку/запуск бота
-	// cancelAhead - Событие STOP будет отправлено в канал за cancelAhead до конца торгов
-	cancelAhead := time.Minute * 5
-	t := investgo.NewTimer(client, "MOEX", cancelAhead)
+	t := investgo.NewTimer(client, EXCHANGE, cancelAhead)
 
 	// запуск таймера
 	wg.Add(1)
