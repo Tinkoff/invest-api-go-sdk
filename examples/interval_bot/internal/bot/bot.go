@@ -16,7 +16,7 @@ import (
 
 // IntervalStrategyConfig - Конфигурация стратегии интервального бота
 type IntervalStrategyConfig struct {
-	// Instruments - слайс идентификаторов инструментов
+	// Instruments - Слайс идентификаторов инструментов первичный
 	Instruments []string
 	// PreferredPositionPrice - Предпочтительная стоимость открытия позиции в валюте
 	PreferredPositionPrice float64
