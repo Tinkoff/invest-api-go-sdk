@@ -27,6 +27,7 @@ var (
 		StopLossPercent:         1.8,
 		AnalyseLowPercentile:    0,
 		AnalyseHighPercentile:   0,
+		Analyse:                 bot.BEST_WIDTH,
 		// Параметры ниже не влияют на успех стратегии
 		IntervalUpdateDelay:   time.Minute * MINUTES,
 		SellOut:               true,

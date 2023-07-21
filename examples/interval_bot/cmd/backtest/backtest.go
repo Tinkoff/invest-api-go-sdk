@@ -42,7 +42,7 @@ var (
 	}
 	// Конфиг бектеста для режима TEST_WITH_CONFIG
 	configToTest = bot.BacktestConfig{
-		Analyse:                 bot.MinProfit,
+		Analyse:                 bot.BEST_WIDTH,
 		LowPercentile:           0,
 		HighPercentile:          0,
 		MinProfit:               0.3,
@@ -257,7 +257,7 @@ func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Lo
 			minProfit := minProfitMin
 			for minProfit < minProfitMax {
 				bc = append(bc, bot.BacktestConfig{
-					Analyse:                 bot.MinProfit,
+					Analyse:                 bot.BEST_WIDTH,
 					LowPercentile:           0,
 					HighPercentile:          0,
 					MinProfit:               minProfit,
@@ -269,7 +269,7 @@ func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Lo
 				tempPerc := percentileMin
 				for tempPerc < percentileMax {
 					bc = append(bc, bot.BacktestConfig{
-						Analyse:                 bot.MathStat,
+						Analyse:                 bot.MATH_STAT,
 						LowPercentile:           math.Round(tempPerc),
 						HighPercentile:          math.Round(100 - tempPerc),
 						MinProfit:               minProfit,
