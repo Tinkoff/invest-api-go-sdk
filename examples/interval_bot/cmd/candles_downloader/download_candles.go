@@ -33,7 +33,7 @@ const (
 	// CURRENCY - Валюта для работы бота
 	CURRENCY = "RUB"
 	// DB_PATH - Путь к базе данных sqlite
-	DB_PATH = "examples/interval_bot/candles/candles.db"
+	DB_PATH = "interval_bot/candles.db"
 	// DISABLE_INFO_LOGS - Отключение информационных сообщений
 	DISABLE_INFO_LOGS = true
 )
@@ -46,10 +46,16 @@ func main() {
 	}
 
 	sigs := make(chan os.Signal, 1)
+	defer close(sigs)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	go func() {
+		<-sigs
+		cancel()
+	}()
 	// сдк использует для внутреннего логирования investgo.Logger
 	// для примера передадим uber.zap
 	zapConfig := zap.NewDevelopmentConfig()
@@ -122,25 +128,30 @@ func main() {
 	mds := client.NewMarketDataServiceClient()
 	now := time.Now()
 	for i, id := range instrumentIds {
-		candles, err := mds.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
-			Instrument: id,
-			Interval:   INTERVAL,
-			From:       FROM,
-			To:         now,
-			File:       false,
-			FileName:   "",
-		})
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			candles, err := mds.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
+				Instrument: id,
+				Interval:   INTERVAL,
+				From:       FROM,
+				To:         now,
+				File:       false,
+				FileName:   "",
+			})
 
-		logger.Infof("got %v candles for %v", len(candles), id)
+			logger.Infof("got %v candles for %v", len(candles), id)
 
-		err = storeCandlesInDB(db, id, now, candles)
-		if err != nil {
-			logger.Errorf(err.Error())
-		}
-		logger.Infof("store in db complete candle %v/%v", i+1, len(instrumentIds))
-		err = bar.Add(1)
-		if err != nil {
-			logger.Errorf(err.Error())
+			err = storeCandlesInDB(db, id, now, candles)
+			if err != nil {
+				logger.Errorf(err.Error())
+			}
+			logger.Infof("store in db complete candle %v/%v", i+1, len(instrumentIds))
+			err = bar.Add(1)
+			if err != nil {
+				logger.Errorf(err.Error())
+			}
 		}
 	}
 }
