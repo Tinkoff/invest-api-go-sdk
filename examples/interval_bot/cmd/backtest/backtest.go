@@ -275,6 +275,7 @@ func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Lo
 						MinProfit:               minProfit,
 						StopLoss:                stopLoss,
 						DaysToCalculateInterval: daysToCalculate,
+						Commission:              0.05,
 					})
 					tempPerc += 1
 				}
