@@ -6,7 +6,7 @@ SDK предназначен для упрощения работы с API Ти�
 
 ## Начало работы
 
-    $ go get github.com/tinkoff/invest-api-go-sdk
+    go get github.com/tinkoff/invest-api-go-sdk
 
 ### Где взять токен аутентификации?
 
@@ -30,16 +30,16 @@ SDK предназначен для упрощения работы с API Ти�
 
 #### 1. Клонирование репозитория
 
-    $ git clone https://github.com/tinkoff/invest-api-go-sdk
+    git clone https://github.com/tinkoff/invest-api-go-sdk
 
 #### 2. Конфигурация SDK
 Перейдите в директорию с примерами
 
-    $ cd invest-api-go-sdk/examples
+    cd invest-api-go-sdk/examples
 
 Создайте файл `config.yaml`
 
-    $ touch "config.yaml"
+    touch "config.yaml"
 
 И заполните его по примеру `example.yaml`
 
@@ -85,10 +85,10 @@ MaxRetries uint `yaml:"MaxRetries"`
 #### 3. Запуск
 Пример использования `MarketDataStreamService`:
 
-    $ go run md_stream.go
+    go run md_stream.go
 Загрузка стаканов из стрима:
 
-    $ go run order_book_download/order_book.go
+    go run order_book_download/order_book.go
 
 ### Дополнительные возможности
 * **Загрузка исторических данных.** В рамках сервиса `Marketdata`, метод `GetHistoricCandles` возвращает список
