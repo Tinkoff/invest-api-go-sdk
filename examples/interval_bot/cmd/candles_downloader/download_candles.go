@@ -91,16 +91,25 @@ func main() {
 
 	// для создания стратеги нужно ее сконфигурировать, для этого получим список идентификаторов инструментов,
 	// которыми предстоит торговать
+	// слайс идентификаторов торговых инструментов instrument_uid
+	instrumentIds := make([]string, 0, 300)
+	// instrumentIds := []string{"9654c2dd-6993-427e-80fa-04e80a1cf4da"}
 	insrtumentsService := client.NewInstrumentsServiceClient()
-	// получаем список акций доступных для торговли через investAPI
-	instrumentsResp, err := insrtumentsService.Shares(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
+	// получаем список фондов доступных для торговли через investAPI
+	etfsResp, err := insrtumentsService.Etfs(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
 	if err != nil {
 		logger.Errorf(err.Error())
 	}
-	// слайс идентификаторов торговых инструментов instrument_uid
-	// акции с московской биржи
-	instrumentIds := make([]string, 0, 300)
-	shares := instrumentsResp.GetInstruments()
+	// рублевые фонды с московской биржи
+	etfs := etfsResp.GetInstruments()
+	// получаем список акций доступных для торговли через investAPI
+	sharesResp, err := insrtumentsService.Shares(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
+	if err != nil {
+		logger.Errorf(err.Error())
+	}
+	// рублевые акции c московской биржи
+	shares := sharesResp.GetInstruments()
+
 	for _, share := range shares {
 		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
 			break
@@ -109,6 +118,26 @@ func main() {
 		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
 		if exchange && currency && !share.GetForQualInvestorFlag() {
 			instrumentIds = append(instrumentIds, share.GetUid())
+		}
+	}
+	for _, share := range shares {
+		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
+			break
+		}
+		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
+		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
+		if exchange && currency && !share.GetForQualInvestorFlag() {
+			instrumentIds = append(instrumentIds, share.GetUid())
+		}
+	}
+	for _, etf := range etfs {
+		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
+			break
+		}
+		exchange := strings.EqualFold(etf.GetExchange(), EXCHANGE)
+		currency := strings.EqualFold(etf.GetCurrency(), CURRENCY)
+		if exchange && currency {
+			instrumentIds = append(instrumentIds, etf.GetUid())
 		}
 	}
 	logger.Infof("got %v instruments", len(instrumentIds))
