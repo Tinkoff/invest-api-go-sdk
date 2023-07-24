@@ -703,7 +703,7 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 
 	// загружаем минутные свечи по всем инструментам для анализа волатильности
 	from, to := timeIntervalByDays(b.StrategyConfig.DaysToCalculateInterval, start)
-	fmt.Printf("Start backtest day =%v from = %v to = %v\n", start, from, to)
+	b.Client.Logger.Infof("Start backtest day =%v from = %v to = %v", start, from, to)
 	// считаем на DaysToCalculateInterval днях
 	// отбор топ инструментов по волатильности
 	// результаты анализа
@@ -761,12 +761,12 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 		}
 		requiredMoneyForStart += i.low * float64(currInstrument.lot) * float64(currInstrument.quantity)
 	}
-	fmt.Printf("RequiredMoneyForStart = %.3f\n", requiredMoneyForStart)
+	b.Client.Logger.Infof("RequiredMoneyForStart = %.3f", requiredMoneyForStart)
 
 	// проверяем на start дне
 	var totalProfit, instrumentProfit float64
 	for id, interval := range topInstrumentsIntervals {
-		fmt.Printf("Start trading with %v, high = %.9f, low = %.9f\n", b.executor.ticker(id), interval.high, interval.low)
+		b.Client.Logger.Infof("Start trading with %v, high = %.9f, low = %.9f", b.executor.ticker(id), interval.high, interval.low)
 		todayCandles, err := b.storage.Candles(id, start, start.Add(time.Hour*24))
 		if err != nil {
 			return 0, 0, err
@@ -834,7 +834,7 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 				}
 			}
 		}
-		fmt.Printf("Stop trading with %v, instock = %v, profit = %.9f\n", b.executor.ticker(id), inStock, instrumentProfit)
+		b.Client.Logger.Infof("Stop trading with %v, instock = %v, profit = %.9f", b.executor.ticker(id), inStock, instrumentProfit)
 		totalProfit += instrumentProfit
 		instrumentProfit = 0
 	}
