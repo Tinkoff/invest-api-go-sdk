@@ -31,7 +31,7 @@ var (
 		// Параметры ниже не влияют на успех стратегии
 		IntervalUpdateDelay:   time.Minute * MINUTES,
 		SellOut:               true,
-		StorageDBPath:         "examples/interval_bot/candles/candles.db",
+		StorageDBPath:         "candles/candles.db",
 		StorageCandleInterval: pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
 		StorageFromTime:       time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
 		StorageUpdate:         true,

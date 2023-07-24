@@ -33,7 +33,7 @@ const (
 	// CURRENCY - Валюта для работы бота
 	CURRENCY = "RUB"
 	// DB_PATH - Путь к базе данных sqlite
-	DB_PATH = "interval_bot/candles.db"
+	DB_PATH = "candles/candles.db"
 	// DISABLE_INFO_LOGS - Отключение информационных сообщений
 	DISABLE_INFO_LOGS = true
 )

@@ -35,7 +35,7 @@ var (
 		MaxPositionPrice:       5000,
 		TopInstrumentsQuantity: 10,
 		SellOut:                true,
-		StorageDBPath:          "examples/interval_bot/candles/candles.db",
+		StorageDBPath:          "candles/candles.db",
 		StorageCandleInterval:  pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
 		StorageFromTime:        time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
 		StorageUpdate:          false,
