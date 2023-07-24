@@ -172,7 +172,7 @@ func (c *CandlesStorage) CandlesAll(uid string) ([]*pb.HistoricCandle, error) {
 		return nil, fmt.Errorf("%v instrument not found, at first LoadCandlesHistory()", c.ticker(uid))
 	}
 
-	stmt, err := c.db.Preparex(`select * from candles where instrument_uid=?`)
+	stmt, err := c.db.Preparex(`select * from candles where instrument_uid=? order by time `)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +391,7 @@ type CandleDB struct {
 
 // loadCandlesFromDB - Загрузка исторических свечей по инструменту из напрямую из бд
 func (c *CandlesStorage) loadCandlesFromDB(uid string, inc *pb.Quotation, from, to time.Time) ([]*pb.HistoricCandle, error) {
-	stmt, err := c.db.Preparex(`select * from candles where instrument_uid=? and time between ? and ?`)
+	stmt, err := c.db.Preparex(`select * from candles where instrument_uid=? and time between ? and ? order by time`)
 	if err != nil {
 		return nil, err
 	}
