@@ -32,7 +32,7 @@ func NewClient(ctx context.Context, conf Config, l Logger) (*Client, error) {
 	ctx = context.WithValue(ctx, authKey, fmt.Sprintf("Bearer %s", conf.Token))
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-app-name", conf.AppName)
 
-	Opts := []retry.CallOption{
+	opts := []retry.CallOption{
 		retry.WithCodes(codes.Unavailable, codes.Internal),
 		retry.WithBackoff(retry.BackoffLinear(500 * time.Millisecond)),
 		retry.WithMax(conf.MaxRetries),
@@ -42,20 +42,23 @@ func NewClient(ctx context.Context, conf Config, l Logger) (*Client, error) {
 	exhaustedOpts := []retry.CallOption{
 		retry.WithCodes(codes.ResourceExhausted),
 		retry.WithMax(conf.MaxRetries),
+		retry.WithOnRetryCallback(func(ctx context.Context, attempt uint, err error) {
+			l.Infof("Resource Exhausted, sleep for %vs...", attempt)
+		}),
 	}
 
 	streamInterceptors := []grpc.StreamClientInterceptor{
-		retry.StreamClientInterceptor(Opts...),
+		retry.StreamClientInterceptor(opts...),
 	}
 
 	var unaryInterceptors []grpc.UnaryClientInterceptor
 	if conf.DisableResourceExhaustedRetry {
 		unaryInterceptors = []grpc.UnaryClientInterceptor{
-			retry.UnaryClientInterceptor(Opts...),
+			retry.UnaryClientInterceptor(opts...),
 		}
 	} else {
 		unaryInterceptors = []grpc.UnaryClientInterceptor{
-			retry.UnaryClientInterceptor(Opts...),
+			retry.UnaryClientInterceptor(opts...),
 			retry.UnaryClientInterceptorRE(exhaustedOpts...),
 		}
 	}
@@ -246,7 +249,6 @@ func (c *Client) NewOperationsStreamClient() *OperationsStreamClient {
 
 // Stop - корректное завершение работы клиента
 func (c *Client) Stop() error {
-	// TODO add some stop options
 	c.Logger.Infof("stop client")
 	return c.conn.Close()
 }
