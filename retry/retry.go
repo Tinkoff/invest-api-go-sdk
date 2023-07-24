@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strconv"
 	"sync"
 	"time"
@@ -109,12 +108,12 @@ func UnaryClientInterceptorRE(optFuncs ...CallOption) grpc.UnaryClientIntercepto
 				return nil
 			}
 
-			callOpts.onRetryCallback(parentCtx, attempt, lastErr)
-
 			switch {
 			case status.Code(lastErr) == codes.ResourceExhausted:
 				duration, err := durationFromTrailer(trailer)
-				log.Printf("Resource Exhausted, sleep for %v...\n", duration.String())
+				// log.Printf("Resource Exhausted, sleep for %v...\n", duration.String())
+				// callOpts.onRetryCallback(parentCtx, attempt, lastErr)
+				callOpts.onRetryCallback(parentCtx, uint(duration), lastErr)
 				if err != nil {
 					return err
 				}
