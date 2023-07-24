@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/schollz/progressbar/v3"
 	"github.com/sourcegraph/conc/pool"
 	"github.com/tinkoff/invest-api-go-sdk/examples/interval_bot/internal/bot"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
@@ -19,6 +20,9 @@ import (
 	"syscall"
 	"time"
 )
+
+// DISABLE_INFO_LOGS - Отключение подробных сообщений о сделках по инструментам
+const DISABLE_INFO_LOGS = true
 
 // Параметры для изменения конфигурации бектеста
 var (
@@ -52,17 +56,17 @@ var (
 		Commission: 0.05,
 	}
 	// Границы параметров конфига бектеста для генерации
-	stopLossMin = 0.5
+	stopLossMin = 1.0
 	stopLossMax = 2.0
 
 	daysToCalculateMin = 1
 	daysToCalculateMax = 5
 
 	minProfitMin = 0.2
-	minProfitMax = 1.0
+	minProfitMax = 0.8
 
-	percentileMin = 3.0
-	percentileMax = 40.0
+	percentileMin = 25.0
+	percentileMax = 30.0
 )
 
 // InstrumentsSelection - Типы инструментов для отбора
@@ -126,6 +130,10 @@ func main() {
 	zapConfig := zap.NewDevelopmentConfig()
 	zapConfig.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
 	zapConfig.EncoderConfig.TimeKey = "time"
+	// оставляем только сообщения об ошибках
+	if DISABLE_INFO_LOGS {
+		zapConfig.Level = zap.NewAtomicLevelAt(zapcore.ErrorLevel)
+	}
 	l, err := zapConfig.Build()
 	logger := l.Sugar()
 	defer func() {
@@ -217,7 +225,7 @@ func main() {
 			}
 		}
 	}
-
+	fmt.Println("Start backtest...")
 	logger.Infof("got %v instruments", len(instrumentIds))
 	// Добавляем инструменты в конфиг
 	intervalConfig.Instruments = instrumentIds
@@ -237,11 +245,11 @@ func main() {
 
 // TestWithConfig - Проверка на одном конфиге
 func TestWithConfig(ctx context.Context, b *bot.Bot, logger investgo.Logger, start, stop time.Time, config bot.BacktestConfig) {
-	r, err := testConfig(ctx, b, start, stop, config)
+	r, err := testConfigWithBar(ctx, b, start, stop, config)
 	if err != nil {
 		logger.Errorf(err.Error())
 	}
-	logger.Infof("total profit = %.3f average day profit in percent = %.3f", r.totalProfit, r.averageDayPercentProfit)
+	fmt.Printf("total profit = %.3f\naverage day profit in percent = %.3f\n", r.totalProfit, r.averageDayPercentProfit)
 }
 
 // TestWithMultipleConfigs - Генерация мнодетсва конфигов и проверка на них
@@ -285,7 +293,10 @@ func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Lo
 		}
 		stopLoss += 0.1
 	}
-
+	bar := &progressbar.ProgressBar{}
+	if DISABLE_INFO_LOGS {
+		bar = progressbar.Default(int64(len(bc)), "test all configs")
+	}
 	// Запускаем параллельно проверку всех конфигов, которые получили выше
 	rp := pool.NewWithResults[Report]().WithMaxGoroutines(runtime.NumCPU()).WithContext(ctx)
 	for _, config := range bc {
@@ -293,6 +304,12 @@ func TestWithMultipleConfigs(ctx context.Context, b *bot.Bot, logger investgo.Lo
 		rp.Go(func(ctx context.Context) (Report, error) {
 			return testConfig(ctx, b, start, stop, c)
 		})
+		if DISABLE_INFO_LOGS {
+			err := bar.Add(1)
+			if err != nil {
+				b.Client.Logger.Errorf(err.Error())
+			}
+		}
 	}
 	// по каждому конфигу будет отчет с профитом
 	reports, err := rp.Wait()
@@ -336,6 +353,57 @@ func testConfig(ctx context.Context, b *bot.Bot, start, stop time.Time, config b
 			totalProfit += profit
 			if totalProfit != 0 {
 				tradingDays++
+			}
+			date = date.Add(24 * time.Hour)
+		}
+	}
+	// средний процент профита в день считаем как сумму всех профитов за день в процентах / кол-во торговых дней(когда профит != 0)
+	var ap float64
+	if tradingDays > 0 {
+		ap = totalPercentage / float64(tradingDays)
+	}
+	return Report{
+		bc:                      config,
+		totalProfit:             totalProfit,
+		averageDayPercentProfit: ap,
+	}, nil
+}
+
+// testConfig - Бектест для конфига на времени start-stop с прогресс-баром
+func testConfigWithBar(ctx context.Context, b *bot.Bot, start, stop time.Time, config bot.BacktestConfig) (Report, error) {
+	initDate := start
+	stopDate := stop
+
+	date := initDate
+	var totalPercentage, totalProfit float64
+	var tradingDays int
+
+	bar := &progressbar.ProgressBar{}
+	if DISABLE_INFO_LOGS {
+		dur := int64(stopDate.Sub(initDate).Hours())
+		bar = progressbar.Default(dur, "backtest")
+	}
+
+	var done bool
+	for date.Before(stopDate) && !done {
+		select {
+		case <-ctx.Done():
+			done = true
+		default:
+			profit, percentage, err := b.BackTest(date, config)
+			if err != nil {
+				return Report{}, err
+			}
+			totalPercentage += percentage
+			totalProfit += profit
+			if totalProfit != 0 {
+				tradingDays++
+			}
+			if DISABLE_INFO_LOGS {
+				err = bar.Add(24)
+				if err != nil {
+					b.Client.Logger.Errorf(err.Error())
+				}
 			}
 			date = date.Add(24 * time.Hour)
 		}
