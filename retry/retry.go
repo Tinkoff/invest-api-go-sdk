@@ -113,7 +113,7 @@ func UnaryClientInterceptorRE(optFuncs ...CallOption) grpc.UnaryClientIntercepto
 				duration, err := durationFromTrailer(trailer)
 				// log.Printf("Resource Exhausted, sleep for %v...\n", duration.String())
 				// callOpts.onRetryCallback(parentCtx, attempt, lastErr)
-				callOpts.onRetryCallback(parentCtx, uint(duration), lastErr)
+				callOpts.onRetryCallback(parentCtx, uint(duration.Seconds()), lastErr)
 				if err != nil {
 					return err
 				}

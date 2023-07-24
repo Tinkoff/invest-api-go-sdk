@@ -43,7 +43,7 @@ func NewClient(ctx context.Context, conf Config, l Logger) (*Client, error) {
 		retry.WithCodes(codes.ResourceExhausted),
 		retry.WithMax(conf.MaxRetries),
 		retry.WithOnRetryCallback(func(ctx context.Context, attempt uint, err error) {
-			l.Infof("Resource Exhausted, sleep for %v...", attempt)
+			l.Infof("Resource Exhausted, sleep for %vs...", attempt)
 		}),
 	}
 
