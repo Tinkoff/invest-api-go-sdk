@@ -110,15 +110,15 @@ const (
 ### Запуск
 Клонируйте репозиторий
 
-    $ git clone https://github.com/tinkoff/invest-api-go-sdk
+    git clone https://github.com/tinkoff/invest-api-go-sdk
 
 Перейдите в папку с ботом
 
-    $ cd invest-api-go-sdk/examples/interval_bot
+    cd invest-api-go-sdk/examples/interval_bot
 
 Создайте файл `config.yaml`
 
-    $ touch "config.yaml"
+    touch "config.yaml"
 
 И заполните его по примеру `example.yaml`
 
@@ -137,13 +137,13 @@ MaxRetries: 3
 рекомендуется просто запустить загрузчик с настройками по умолчанию и он загрузит все минутные свечи по рублевым фондам 
 и акциям с Московской биржи с 10 января 2023 до текущего времени. Этот процесс займет ~30 минут.
 
-    $ go run cmd/candles_downloader/download_candles.go
+    go run cmd/candles_downloader/download_candles.go
 
 После этого можно запускать бота на песочнице, проде или проверить бектест
 
 *Для быстрого старта на песочнице достаточно указать только токен, остальное заполнится по умолчанию.*
 
-    $ go run cmd/main.go
+    go run cmd/main.go
 
 Обратите внимание, что в одной функции main есть возможность создать несколько клиентов для investAPI c разными
 токенами и счетами, а с разными клиентами можно создавать разных ботов и запускать их одновременно. 
@@ -156,7 +156,7 @@ MaxRetries: 3
 
 Убедитесь, что вы выполнили все шаги необходимые для запуска робота и скачали историю, затем выполните:
 
-    $ go run backtest/backtest.go
+    go run backtest/backtest.go
 
 Пройдет проверка одного конфига на истории январь-июль 2023. Чтобы изменить конфигурацию для проверки, откройте файл
 `backtest/backtest.go` и в самом начале измените нужные параметры.
