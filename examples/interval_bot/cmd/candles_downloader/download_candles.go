@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/schollz/progressbar/v3"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"go.uber.org/zap"
@@ -33,6 +34,8 @@ const (
 	CURRENCY = "RUB"
 	// DB_PATH - Путь к базе данных sqlite
 	DB_PATH = "examples/interval_bot/candles/candles.db"
+	// DISABLE_INFO_LOGS - Отключение информационных сообщений
+	DISABLE_INFO_LOGS = true
 )
 
 func main() {
@@ -52,6 +55,9 @@ func main() {
 	zapConfig := zap.NewDevelopmentConfig()
 	zapConfig.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
 	zapConfig.EncoderConfig.TimeKey = "time"
+	if DISABLE_INFO_LOGS {
+		zapConfig.Level = zap.NewAtomicLevelAt(zapcore.ErrorLevel)
+	}
 	l, err := zapConfig.Build()
 	logger := l.Sugar()
 	defer func() {
@@ -110,7 +116,8 @@ func main() {
 			logger.Errorf(err.Error())
 		}
 	}()
-
+	// прогресс бар для загрузки
+	bar := progressbar.Default(int64(len(instrumentIds)), "downloading candles")
 	// для каждого инструмента запрашиваем свечи и сохраняем в бд
 	mds := client.NewMarketDataServiceClient()
 	now := time.Now()
@@ -131,6 +138,10 @@ func main() {
 			logger.Errorf(err.Error())
 		}
 		logger.Infof("store in db complete candle %v/%v", i+1, len(instrumentIds))
+		err = bar.Add(1)
+		if err != nil {
+			logger.Errorf(err.Error())
+		}
 	}
 }
 
@@ -210,6 +221,5 @@ func storeCandlesInDB(db *sqlx.DB, uid string, update time.Time, hc []*pb.Histor
 	if err != nil {
 		return err
 	}
-	log.Printf("%v %v candles uploaded in storage", uid, len(hc))
 	return nil
 }
