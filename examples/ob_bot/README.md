@@ -53,7 +53,15 @@ SellOut bool
 
 ### Запуск 
 
+> **Важно!** В примерах роботов `interval_bot` и загрузчика стаканов `order_book_download` используется драйвер
+для sqlite, который [является cgo пакетом](https://github.com/mattn/go-sqlite3#installation). Перед запуском убедитесь, что
+на вашем компьютере установлен gcc.
+
+Клонируете репозиторий 
+
     git clone https://github.com/tinkoff/invest-api-go-sdk
+
+Перейдите в папку с ботом
 
     cd invest-api-go-sdk/examples/ob_bot
 

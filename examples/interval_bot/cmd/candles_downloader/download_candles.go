@@ -120,16 +120,6 @@ func main() {
 			instrumentIds = append(instrumentIds, share.GetUid())
 		}
 	}
-	for _, share := range shares {
-		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
-			break
-		}
-		exchange := strings.EqualFold(share.GetExchange(), EXCHANGE)
-		currency := strings.EqualFold(share.GetCurrency(), CURRENCY)
-		if exchange && currency && !share.GetForQualInvestorFlag() {
-			instrumentIds = append(instrumentIds, share.GetUid())
-		}
-	}
 	for _, etf := range etfs {
 		if len(instrumentIds) > INSTRUMENTS_MAX-1 {
 			break
