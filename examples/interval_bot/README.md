@@ -108,6 +108,12 @@ const (
 позиции за `cancelAhead` до конца торгов текущего дня.
 
 ### Запуск
+
+> **Важно!** В примерах роботов `interval_bot` и загрузчика стаканов `order_book_download` используется драйвер
+для sqlite, который [является cgo пакетом](https://github.com/mattn/go-sqlite3#installation). Перед запуском убедитесь, что
+на вашем компьютере установлен gcc.
+
+
 Клонируйте репозиторий
 
     git clone https://github.com/tinkoff/invest-api-go-sdk
