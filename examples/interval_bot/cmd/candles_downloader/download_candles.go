@@ -166,7 +166,7 @@ func main() {
 			if err != nil {
 				logger.Errorf(err.Error())
 			}
-			logger.Infof("store in db complete candle %v/%v", i+1, len(instrumentIds))
+			logger.Infof("store in db complete instrument %v/%v", i+1, len(instrumentIds))
 			err = bar.Add(1)
 			if err != nil {
 				logger.Errorf(err.Error())

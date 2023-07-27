@@ -142,7 +142,7 @@ func (c *CandlesStorage) ticker(key string) string {
 func (c *CandlesStorage) Candles(id string, from, to time.Time) ([]*pb.HistoricCandle, error) {
 	allCandles, ok := c.candles[id]
 	if !ok {
-		return nil, fmt.Errorf("%v instrument not found, at first LoadCandlesHistory()", id)
+		return nil, fmt.Errorf("%v instrument not found, at first LoadCandlesHistory() or use candles_dowloader", id)
 	}
 	indexes := [2]int{}
 	times := [2]time.Time{from, to}
@@ -158,7 +158,7 @@ func (c *CandlesStorage) Candles(id string, from, to time.Time) ([]*pb.HistoricC
 		}
 	}
 	if currIndex == 0 {
-		return nil, fmt.Errorf("%v candles not found in storage, try to UpdateCandlesHistory() from = %v\n", c.ticker(id), from)
+		return nil, fmt.Errorf("%v candles not found in storage, try to UpdateCandlesHistory() from = %v or use candles_downloader\n", c.ticker(id), from)
 	}
 	if indexes[1] == 0 {
 		return allCandles[indexes[0]:], nil
