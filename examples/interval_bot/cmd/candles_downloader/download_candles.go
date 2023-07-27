@@ -177,20 +177,21 @@ func main() {
 
 var schema = `
 create table if not exists candles (
-   id integer primary key autoincrement,
-   instrument_uid text,
+    id integer primary key autoincrement,
+    instrument_uid text,
 	open real,
 	close real,
 	high real,
 	low real,
 	volume integer,
 	time integer,
-	is_complete integer
+	is_complete integer,
+    unique (instrument_uid, time)
 );
 
 create table if not exists updates (
-  instrument_id text unique,
-  time integer
+	instrument_id text unique,
+	time integer
 );
 `
 

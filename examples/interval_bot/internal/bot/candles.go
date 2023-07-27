@@ -37,7 +37,8 @@ create table if not exists candles (
 	low real,
 	volume integer,
 	time integer,
-	is_complete integer
+	is_complete integer,
+    unique (instrument_uid, time)
 );
 
 create table if not exists updates (
