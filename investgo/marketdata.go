@@ -168,7 +168,10 @@ func (md *MarketDataServiceClient) GetHistoricCandles(req *GetHistoricCandlesReq
 		if err != nil {
 			return nil, err
 		}
-		candles = append(candles, resp.GetCandles()...)
+		if len(resp.GetCandles()) < 1 {
+			continue
+		}
+		candles = append(candles, resp.GetCandles()[1:]...)
 		if requests == 299 {
 			if md.config.DisableResourceExhaustedRetry {
 				time.Sleep(time.Minute)
