@@ -166,6 +166,10 @@ func main() {
 
 	// передаем инструменты в конфиг
 	intervalConfig.Instruments = instrumentIds
+	// запрашиваемое время для свечей не может быть раньше StorageFromTime
+	if time.Now().Add(-time.Hour * 24 * time.Duration(intervalConfig.DaysToCalculateInterval)).Before(intervalConfig.StorageFromTime) {
+		intervalConfig.StorageFromTime = time.Now().Add(-time.Hour * 24 * time.Duration(intervalConfig.DaysToCalculateInterval))
+	}
 
 	// создание интервального бота
 	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)

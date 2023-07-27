@@ -136,7 +136,7 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 		instrumentsForStorage[instrument] = StorageInstrument{
 			CandleInterval: config.StorageCandleInterval,
 			PriceStep:      resp.GetInstrument().GetMinPriceIncrement(),
-			LastUpdate:     config.StorageFromTime,
+			FirstUpdate:    config.StorageFromTime,
 			ticker:         resp.GetInstrument().GetTicker(),
 		}
 	}

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"github.com/jmoiron/sqlx"
+	"github.com/mattn/go-sqlite3"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/schollz/progressbar/v3"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
@@ -162,7 +164,7 @@ func main() {
 
 			logger.Infof("got %v candles for %v", len(candles), id)
 
-			err = storeCandlesInDB(db, id, now, candles)
+			err = storeCandlesInDB(db, id, FROM, now, candles)
 			if err != nil {
 				logger.Errorf(err.Error())
 			}
@@ -191,7 +193,8 @@ create table if not exists candles (
 
 create table if not exists updates (
 	instrument_id text unique,
-	time integer
+	first_time integer,
+	last_time integer
 );
 `
 
@@ -212,7 +215,7 @@ func initDB(path string) (*sqlx.DB, error) {
 }
 
 // storeCandlesInDB - Сохранение исторических свечей инструмента в бд
-func storeCandlesInDB(db *sqlx.DB, uid string, update time.Time, hc []*pb.HistoricCandle) error {
+func storeCandlesInDB(db *sqlx.DB, uid string, first, last time.Time, hc []*pb.HistoricCandle) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -239,7 +242,11 @@ func storeCandlesInDB(db *sqlx.DB, uid string, update time.Time, hc []*pb.Histor
 			candle.GetTime().AsTime().Unix(),
 			candle.GetIsComplete())
 		if err != nil {
-			return err
+			if errors.As(err, &sqlite3.Error{}) {
+				continue
+			} else {
+				return err
+			}
 		}
 	}
 
@@ -248,7 +255,7 @@ func storeCandlesInDB(db *sqlx.DB, uid string, update time.Time, hc []*pb.Histor
 	}
 
 	// записываем в базу время последнего обновления
-	_, err = db.Exec(`insert or replace into updates(instrument_id, time) values (?, ?)`, uid, update.Unix())
+	_, err = db.Exec(`insert or replace into updates(instrument_id, first_time, last_time) values (?, ?, ?)`, uid, first.Unix(), last.Unix())
 	if err != nil {
 		return err
 	}
