@@ -355,44 +355,49 @@ func (c *CandlesStorage) initDB(path string) (*sqlx.DB, error) {
 
 // storeCandlesInDB - Сохранение исторических свечей инструмента в бд
 func (c *CandlesStorage) storeCandlesInDB(uid string, update time.Time, hc []*pb.HistoricCandle) error {
-	tx, err := c.db.Begin()
-	if err != nil {
-		return err
-	}
-
-	insertCandle, err := tx.Prepare(`insert into candles (instrument_uid, open, close, high, low, volume, time, is_complete) 
-		values (?, ?, ?, ?, ?, ?, ?, ?) `)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := insertCandle.Close(); err != nil {
-			c.logger.Errorf(err.Error())
-		}
-	}()
-
-	for _, candle := range hc {
-		_, err := insertCandle.Exec(uid,
-			candle.GetOpen().ToFloat(),
-			candle.GetClose().ToFloat(),
-			candle.GetHigh().ToFloat(),
-			candle.GetLow().ToFloat(),
-			candle.GetVolume(),
-			candle.GetTime().AsTime().Unix(),
-			candle.GetIsComplete())
+	err := func() error {
+		tx, err := c.db.Begin()
 		if err != nil {
-			if errors.As(err, &sqlite3.Error{}) {
-				continue
-			} else {
-				return err
+			return err
+		}
+		defer func() {
+			if err := tx.Commit(); err != nil {
+				c.logger.Errorf(err.Error())
+			}
+		}()
+		insertCandle, err := tx.Prepare(`insert into candles (instrument_uid, open, close, high, low, volume, time, is_complete) 
+		values (?, ?, ?, ?, ?, ?, ?, ?) `)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := insertCandle.Close(); err != nil {
+				c.logger.Errorf(err.Error())
+			}
+		}()
+
+		for _, candle := range hc {
+			_, err := insertCandle.Exec(uid,
+				candle.GetOpen().ToFloat(),
+				candle.GetClose().ToFloat(),
+				candle.GetHigh().ToFloat(),
+				candle.GetLow().ToFloat(),
+				candle.GetVolume(),
+				candle.GetTime().AsTime().Unix(),
+				candle.GetIsComplete())
+			if err != nil {
+				if errors.As(err, &sqlite3.Error{}) {
+					continue
+				} else {
+					return err
+				}
 			}
 		}
-	}
-
-	if err := tx.Commit(); err != nil {
+		return nil
+	}()
+	if err != nil {
 		return err
 	}
-
 	// записываем в базу время последнего обновления
 	_, err = c.db.Exec(`insert or replace into updates(instrument_id, first_time, last_time) values (?, ?, ?)`,
 		uid, c.instruments[uid].FirstUpdate.Unix(), update.Unix())
