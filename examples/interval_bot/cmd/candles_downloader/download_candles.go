@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"github.com/jmoiron/sqlx"
+	"github.com/mattn/go-sqlite3"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/schollz/progressbar/v3"
 	"github.com/tinkoff/invest-api-go-sdk/investgo"
@@ -162,11 +164,11 @@ func main() {
 
 			logger.Infof("got %v candles for %v", len(candles), id)
 
-			err = storeCandlesInDB(db, id, now, candles)
+			err = storeCandlesInDB(db, id, FROM, now, candles)
 			if err != nil {
 				logger.Errorf(err.Error())
 			}
-			logger.Infof("store in db complete candle %v/%v", i+1, len(instrumentIds))
+			logger.Infof("store in db complete instrument %v/%v", i+1, len(instrumentIds))
 			err = bar.Add(1)
 			if err != nil {
 				logger.Errorf(err.Error())
@@ -177,20 +179,22 @@ func main() {
 
 var schema = `
 create table if not exists candles (
-   id integer primary key autoincrement,
-   instrument_uid text,
+    id integer primary key autoincrement,
+    instrument_uid text,
 	open real,
 	close real,
 	high real,
 	low real,
 	volume integer,
 	time integer,
-	is_complete integer
+	is_complete integer,
+    unique (instrument_uid, time)
 );
 
 create table if not exists updates (
-  instrument_id text unique,
-  time integer
+	instrument_id text unique,
+	first_time integer,
+	last_time integer
 );
 `
 
@@ -211,43 +215,54 @@ func initDB(path string) (*sqlx.DB, error) {
 }
 
 // storeCandlesInDB - Сохранение исторических свечей инструмента в бд
-func storeCandlesInDB(db *sqlx.DB, uid string, update time.Time, hc []*pb.HistoricCandle) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-
-	insertCandle, err := tx.Prepare(`insert into candles (instrument_uid, open, close, high, low, volume, time, is_complete) 
-		values (?, ?, ?, ?, ?, ?, ?, ?) `)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := insertCandle.Close(); err != nil {
-			log.Printf(err.Error())
-		}
-	}()
-
-	for _, candle := range hc {
-		_, err := insertCandle.Exec(uid,
-			candle.GetOpen().ToFloat(),
-			candle.GetClose().ToFloat(),
-			candle.GetHigh().ToFloat(),
-			candle.GetLow().ToFloat(),
-			candle.GetVolume(),
-			candle.GetTime().AsTime().Unix(),
-			candle.GetIsComplete())
+func storeCandlesInDB(db *sqlx.DB, uid string, first, last time.Time, hc []*pb.HistoricCandle) error {
+	err := func() error {
+		tx, err := db.Begin()
 		if err != nil {
 			return err
 		}
-	}
 
-	if err := tx.Commit(); err != nil {
+		defer func() {
+			if err = tx.Commit(); err != nil {
+				log.Printf(err.Error())
+			}
+		}()
+
+		insertCandle, err := tx.Prepare(`insert into candles (instrument_uid, open, close, high, low, volume, time, is_complete) 
+		values (?, ?, ?, ?, ?, ?, ?, ?) `)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := insertCandle.Close(); err != nil {
+				log.Printf(err.Error())
+			}
+		}()
+
+		for _, candle := range hc {
+			_, err := insertCandle.Exec(uid,
+				candle.GetOpen().ToFloat(),
+				candle.GetClose().ToFloat(),
+				candle.GetHigh().ToFloat(),
+				candle.GetLow().ToFloat(),
+				candle.GetVolume(),
+				candle.GetTime().AsTime().Unix(),
+				candle.GetIsComplete())
+			if err != nil {
+				if errors.As(err, &sqlite3.Error{}) {
+					continue
+				} else {
+					return err
+				}
+			}
+		}
+		return nil
+	}()
+	if err != nil {
 		return err
 	}
-
 	// записываем в базу время последнего обновления
-	_, err = db.Exec(`insert or replace into updates(instrument_id, time) values (?, ?)`, uid, update.Unix())
+	_, err = db.Exec(`insert or replace into updates(instrument_id, first_time, last_time) values (?, ?, ?)`, uid, first.Unix(), last.Unix())
 	if err != nil {
 		return err
 	}

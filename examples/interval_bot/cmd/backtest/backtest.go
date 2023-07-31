@@ -229,6 +229,10 @@ func main() {
 	logger.Infof("got %v instruments", len(instrumentIds))
 	// Добавляем инструменты в конфиг
 	intervalConfig.Instruments = instrumentIds
+	// initDate не может быть раньше StorageFromTime
+	if initDate.Before(intervalConfig.StorageFromTime) {
+		intervalConfig.StorageFromTime = initDate
+	}
 	// создание интервального бота
 	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)
 	if err != nil {
