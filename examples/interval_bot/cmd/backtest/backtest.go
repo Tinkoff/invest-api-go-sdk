@@ -41,7 +41,7 @@ var (
 		SellOut:                true,
 		StorageDBPath:          "candles/candles.db",
 		StorageCandleInterval:  pb.CandleInterval_CANDLE_INTERVAL_1_MIN,
-		StorageFromTime:        time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local),
+		StorageFromTime:        time.Now().Add(-time.Hour * 24 * 180),
 		StorageUpdate:          false,
 	}
 	// Конфиг бектеста для режима TEST_WITH_CONFIG
