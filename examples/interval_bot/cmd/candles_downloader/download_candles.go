@@ -22,7 +22,9 @@ import (
 // Параметры для изменения конфигурации загрузчика свечей
 var (
 	// FROM - Стартовое время для загрузки свечей
-	FROM = time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local)
+	// FROM = time.Date(2023, 1, 10, 0, 0, 0, 0, time.Local)
+	// Последние 180 суток
+	FROM = time.Now().Add(-time.Hour * 24 * 180)
 	// INTERVAL - Интервал для запроса свечей
 	INTERVAL = pb.CandleInterval_CANDLE_INTERVAL_1_MIN
 )
