@@ -1,9 +1,10 @@
 package investgo
 
 import (
+	"strconv"
+
 	"github.com/google/uuid"
 	"google.golang.org/grpc/metadata"
-	"strconv"
 )
 
 // CreateUid - возвращает строку - уникальный идентификатор длинной 16 байт

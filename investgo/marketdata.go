@@ -3,11 +3,12 @@ package investgo
 import (
 	"context"
 	"fmt"
+	"os"
+	"time"
+
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"os"
-	"time"
 )
 
 type MarketDataServiceClient struct {
@@ -206,7 +207,7 @@ func (md *MarketDataServiceClient) GetAllHistoricCandles(req *GetHistoricCandles
 	}
 	instruments := resp.GetInstruments()
 	if len(instruments) < 1 {
-		return nil, fmt.Errorf("instrument %v not found\n", req.Instrument)
+		return nil, fmt.Errorf("instrument %v not found", req.Instrument)
 	}
 
 	var from time.Time
@@ -231,21 +232,21 @@ func selectDuration(interval pb.CandleInterval) time.Duration {
 	var duration time.Duration
 	switch interval {
 	case pb.CandleInterval_CANDLE_INTERVAL_1_MIN, pb.CandleInterval_CANDLE_INTERVAL_2_MIN, pb.CandleInterval_CANDLE_INTERVAL_3_MIN:
-		duration = time.Hour * 24
+		duration = DAY
 	case pb.CandleInterval_CANDLE_INTERVAL_5_MIN, pb.CandleInterval_CANDLE_INTERVAL_10_MIN, pb.CandleInterval_CANDLE_INTERVAL_15_MIN:
-		duration = time.Hour * 24
+		duration = DAY
 	case pb.CandleInterval_CANDLE_INTERVAL_30_MIN:
-		duration = time.Hour * 48
+		duration = DAY * 2
 	case pb.CandleInterval_CANDLE_INTERVAL_HOUR:
-		duration = time.Hour * 24 * 7
+		duration = DAY * 7
 	case pb.CandleInterval_CANDLE_INTERVAL_2_HOUR, pb.CandleInterval_CANDLE_INTERVAL_4_HOUR:
-		duration = time.Hour * 24 * 30
+		duration = DAY * 30
 	case pb.CandleInterval_CANDLE_INTERVAL_DAY:
-		duration = time.Hour * 24 * 360
+		duration = DAY * 360
 	case pb.CandleInterval_CANDLE_INTERVAL_WEEK:
-		duration = time.Hour * 24 * 360 * 2
+		duration = DAY * 360 * 2
 	case pb.CandleInterval_CANDLE_INTERVAL_MONTH:
-		duration = time.Hour * 24 * 360 * 2
+		duration = DAY * 360 * 2
 	}
 	return duration
 }

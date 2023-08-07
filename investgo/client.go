@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"time"
+
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"github.com/tinkoff/invest-api-go-sdk/retry"
 	"golang.org/x/oauth2"
@@ -12,7 +14,11 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/oauth"
 	"google.golang.org/grpc/metadata"
-	"time"
+)
+
+const (
+	// WAIT_BETWEEN - Время ожидания между ретраями
+	WAIT_BETWEEN time.Duration = 500 * time.Millisecond
 )
 
 type ctxKey string
@@ -34,7 +40,7 @@ func NewClient(ctx context.Context, conf Config, l Logger) (*Client, error) {
 
 	opts := []retry.CallOption{
 		retry.WithCodes(codes.Unavailable, codes.Internal),
-		retry.WithBackoff(retry.BackoffLinear(500 * time.Millisecond)),
+		retry.WithBackoff(retry.BackoffLinear(WAIT_BETWEEN)),
 		retry.WithMax(conf.MaxRetries),
 	}
 
@@ -83,11 +89,25 @@ func NewClient(ctx context.Context, conf Config, l Logger) (*Client, error) {
 
 	if conf.AccountId == "" {
 		s := client.NewSandboxServiceClient()
-		resp, err := s.OpenSandboxAccount()
+		accountsResp, err := s.GetSandboxAccounts()
 		if err != nil {
 			return nil, err
 		}
-		client.Config.AccountId = resp.GetAccountId()
+		accs := accountsResp.GetAccounts()
+		if len(accs) < 1 {
+			resp, err := s.OpenSandboxAccount()
+			if err != nil {
+				return nil, err
+			}
+			client.Config.AccountId = resp.GetAccountId()
+		} else {
+			for _, acc := range accs {
+				if acc.GetStatus() == pb.AccountStatus_ACCOUNT_STATUS_OPEN {
+					client.Config.AccountId = acc.GetId()
+					break
+				}
+			}
+		}
 	}
 
 	return client, nil

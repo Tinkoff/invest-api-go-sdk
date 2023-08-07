@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/montanaflynn/stats"
-	"github.com/tinkoff/invest-api-go-sdk/investgo"
-	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"math"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/montanaflynn/stats"
+	"github.com/tinkoff/invest-api-go-sdk/investgo"
+	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 )
 
 // IntervalStrategyConfig - Конфигурация стратегии интервального бота
@@ -89,7 +90,7 @@ type Bot struct {
 }
 
 // NewBot - Создание нового интервального бота по конфигу
-func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrategyConfig) (*Bot, error) {
+func NewBot(ctx context.Context, client *investgo.Client, s *CandlesStorage, e *Executor, config IntervalStrategyConfig) (*Bot, error) {
 	botCtx, cancel := context.WithCancel(ctx)
 	wg := &sync.WaitGroup{}
 	b := &Bot{
@@ -98,6 +99,8 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 		ctx:            botCtx,
 		cancelBot:      cancel,
 		wg:             wg,
+		executor:       e,
+		storage:        s,
 	}
 	// выбор функции для анализа свечей
 	switch config.Analyse {
@@ -110,77 +113,6 @@ func NewBot(ctx context.Context, client *investgo.Client, config IntervalStrateg
 	default:
 		b.analyseCandles = b.analyseCandlesBestWidth
 	}
-	// по конфигу стратегии заполняем map для executor
-	instrumentService := client.NewInstrumentsServiceClient()
-	marketDataService := client.NewMarketDataServiceClient()
-	// инструменты для исполнителя, заполняем информацию по всем инструментам из конфига
-	// для торгов передадим избранные
-	instrumentsForExecutor := make(map[string]Instrument, len(config.Instruments))
-	// инструменты для хранилища
-	instrumentsForStorage := make(map[string]StorageInstrument, len(config.Instruments))
-	for _, instrument := range config.Instruments {
-		// в данном случае ключ это uid, поэтому используем InstrumentByUid()
-		resp, err := instrumentService.InstrumentByUid(instrument)
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-		instrumentsForExecutor[instrument] = Instrument{
-			entryPrice:      0,
-			lot:             resp.GetInstrument().GetLot(),
-			currency:        resp.GetInstrument().GetCurrency(),
-			ticker:          resp.GetInstrument().GetTicker(),
-			minPriceInc:     resp.GetInstrument().GetMinPriceIncrement(),
-			stopLossPercent: config.StopLossPercent,
-		}
-		instrumentsForStorage[instrument] = StorageInstrument{
-			CandleInterval: config.StorageCandleInterval,
-			PriceStep:      resp.GetInstrument().GetMinPriceIncrement(),
-			FirstUpdate:    config.StorageFromTime,
-			ticker:         resp.GetInstrument().GetTicker(),
-		}
-	}
-	// получаем последние цены по инструментам, слишком дорогие отбрасываем,
-	// а для остальных подбираем оптимальное кол-во лотов, чтобы стоимость открытия позиции была близка к желаемой
-	// подходящие инструменты
-	preferredInstruments := make([]string, 0, len(config.Instruments))
-	resp, err := marketDataService.GetLastPrices(config.Instruments)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	lp := resp.GetLastPrices()
-	for _, lastPrice := range lp {
-		uid := lastPrice.GetInstrumentUid()
-		instrument := instrumentsForExecutor[uid]
-		// если цена одного лота слишком велика, отбрасываем этот инструмент
-		if lastPrice.GetPrice().ToFloat()*float64(instrument.lot) > config.MaxPositionPrice {
-			delete(instrumentsForExecutor, uid)
-			delete(instrumentsForStorage, uid)
-			continue
-		}
-		// добавляем в список подходящих инструментов
-		preferredInstruments = append(preferredInstruments, uid)
-		// если цена 1 лота меньше предпочтительной цены, меняем quantity
-		if lastPrice.GetPrice().ToFloat()*float64(instrument.lot) < config.PreferredPositionPrice {
-			preferredQuantity := math.Floor(config.PreferredPositionPrice / (float64(instrument.lot) * lastPrice.GetPrice().ToFloat()))
-			instrument.quantity = int64(preferredQuantity)
-			instrumentsForExecutor[uid] = instrument
-		} else {
-			instrument.quantity = 1
-			instrumentsForExecutor[uid] = instrument
-		}
-	}
-	// меняем инструменты в конфиге
-	b.StrategyConfig.Instruments = preferredInstruments
-	// создаем хранилище для свечей
-	storage, err := NewCandlesStorage(config.StorageDBPath, config.StorageUpdate, instrumentsForStorage, client.Logger, marketDataService)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	b.storage = storage
-	b.executor = NewExecutor(ctx, client, instrumentsForExecutor)
 	return b, nil
 }
 
@@ -241,7 +173,7 @@ func (b *Bot) Run() error {
 		if !ok {
 			return fmt.Errorf("%v not found in executor map\n", id)
 		}
-		requiredMoneyForStart += i.low * float64(currInstrument.lot) * float64(currInstrument.quantity)
+		requiredMoneyForStart += i.low * float64(currInstrument.Lot) * float64(currInstrument.Quantity)
 	}
 	b.Client.Logger.Infof("RequiredMoneyForStart = %.3f", requiredMoneyForStart)
 
@@ -342,7 +274,7 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 		}
 	}
 
-	if diff := balance - required; diff < 0 {
+	if diff := balance - math.Round(required*1.05); diff < 0 {
 		if strings.HasPrefix(b.Client.Config.EndPoint, "sandbox") {
 			sandbox := b.Client.NewSandboxServiceClient()
 			resp, err := sandbox.SandboxPayIn(&investgo.SandboxPayInRequest{
@@ -384,7 +316,7 @@ func (b *Bot) analyseCandlesBestWidth(id string, candles []*pb.HistoricCandle) (
 	// получили список средних цен
 	midPrices := make([]float64, 0, len(candles))
 	for _, candle := range candles {
-		midPrices = append(midPrices, investgo.FloatToQuotation(midPrice(candle), instr.minPriceInc).ToFloat())
+		midPrices = append(midPrices, investgo.FloatToQuotation(midPrice(candle), instr.MinPriceInc).ToFloat())
 	}
 	// ищем медиану выборки
 	median, err := stats.Median(midPrices)
@@ -392,8 +324,8 @@ func (b *Bot) analyseCandlesBestWidth(id string, candles []*pb.HistoricCandle) (
 		return nil, err
 	}
 	// maxVol - Кол-во пересечений с модой
-	// i, maxVol := b.findFixedInterval(mode, instr.minPriceInc, candles)
-	i, maxVol := b.findInterval(median, instr.minPriceInc, candles)
+	// i, maxVol := b.findFixedInterval(mode, instr.MinPriceInc, candles)
+	i, maxVol := b.findInterval(median, instr.MinPriceInc, candles)
 	return &analyseResponse{
 		id:            id,
 		interval:      i,
@@ -438,8 +370,8 @@ func (b *Bot) analyseCandlesSimplest(id string, candles []*pb.HistoricCandle) (*
 			price:   price,
 			crosses: crosses(price, candles),
 		})
-		price += instr.minPriceInc.ToFloat()
-		price = investgo.FloatToQuotation(price, instr.minPriceInc).ToFloat()
+		price += instr.MinPriceInc.ToFloat()
+		price = investgo.FloatToQuotation(price, instr.MinPriceInc).ToFloat()
 	}
 
 	// находим цену с максимальным кол-вом пересечений и от нее начинаем расширять интервал
@@ -455,8 +387,8 @@ func (b *Bot) analyseCandlesSimplest(id string, candles []*pb.HistoricCandle) (*
 	}
 
 	// maxVol - Кол-во пересечений с модой
-	// i, maxVol := b.findFixedInterval(mode, instr.minPriceInc, candles)
-	i, maxVol := b.findInterval(maxCrossesPrice.price, instr.minPriceInc, candles)
+	// i, maxVol := b.findFixedInterval(mode, instr.MinPriceInc, candles)
+	i, maxVol := b.findInterval(maxCrossesPrice.price, instr.MinPriceInc, candles)
 	return &analyseResponse{
 		id:            id,
 		interval:      i,
@@ -490,12 +422,12 @@ func (b *Bot) analyseCandlesByMathStat(id string, candles []*pb.HistoricCandle) 
 		high: high,
 		low:  low,
 	}
-	//instr, ok := b.executor.instruments[id]
+	//instr, ok := b.executor.Instruments[id]
 	//if !ok {
 	//	return nil, fmt.Errorf("%v min price increment not found", id)
 	//}
 	// volatility = maxCrosses * (width/mode * 100)
-	// maxVol := crosses(investgo.FloatToQuotation(median, instr.minPriceInc).ToFloat(), candles)
+	// maxVol := crosses(investgo.FloatToQuotation(median, instr.MinPriceInc).ToFloat(), candles)
 	maxCrosses := intervalCrosses(high, low, candles)
 	// если интервал меньше чем минимальный профит, то не используем этот инструмент
 	if (i.high-i.low)/median*100 < b.StrategyConfig.MinProfit {
@@ -759,7 +691,7 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 		if !ok {
 			return 0, 0, fmt.Errorf("%v not found in executor map\n", id)
 		}
-		requiredMoneyForStart += i.low * float64(currInstrument.lot) * float64(currInstrument.quantity)
+		requiredMoneyForStart += i.low * float64(currInstrument.Lot) * float64(currInstrument.Quantity)
 	}
 	b.Client.Logger.Infof("RequiredMoneyForStart = %.3f", requiredMoneyForStart)
 
@@ -781,7 +713,7 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 		// выражение фиксируемого убытка в разнице цены инструмента
 		loss := interval.low * (b.StrategyConfig.StopLossPercent / 100)
 		// цена, по которой нужно фиксировать убытки
-		lossPrice := investgo.FloatToQuotation(interval.low-loss, currInstrument.minPriceInc).ToFloat()
+		lossPrice := investgo.FloatToQuotation(interval.low-loss, currInstrument.MinPriceInc).ToFloat()
 		// идем по сегодняшним свечам инструмента
 		stopTradingToday := false
 		for i, candle := range todayCandles {
@@ -799,27 +731,27 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 					// могли бы продать
 					b.Client.Logger.Infof("sell with candle high = %.3f, low = %.3f", candle.GetHigh().ToFloat(), candle.GetLow().ToFloat())
 					// обычный профит от сделки = ширина интервала * лотность * кол-во лотов
-					p := delta * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					p := delta * float64(currInstrument.Lot) * float64(currInstrument.Quantity)
 					b.Client.Logger.Infof("default sell profit = %.3f in percent = %.3f", p, delta/interval.low*100)
 					instrumentProfit += p
 					inStock = false
-					instrumentProfit -= interval.high * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					instrumentProfit -= interval.high * (bc.Commission / 100) * float64(currInstrument.Lot) * float64(currInstrument.Quantity)
 					// если сработал стоп-лосс, продаем и заканчиваем торги на сегодня
 				case candle.GetLow().ToFloat() <= lossPrice:
-					tempLoss := -loss * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					tempLoss := -loss * float64(currInstrument.Lot) * float64(currInstrument.Quantity)
 					instrumentProfit += tempLoss
 					b.Client.Logger.Infof("stop loss, loss = %.3f in percent = %.3f", tempLoss, -b.StrategyConfig.StopLossPercent)
 					inStock = false
-					instrumentProfit -= interval.high * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					instrumentProfit -= interval.high * (bc.Commission / 100) * float64(currInstrument.Lot) * float64(currInstrument.Quantity)
 					// после стоп-лосса не заканчиваем торги на сегодня
 					// stopTradingToday = true
 					// если это последняя свеча на сегодня
 				case i == len(todayCandles)-1:
-					p := (lastCandle.GetClose().ToFloat() - interval.low) * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					p := (lastCandle.GetClose().ToFloat() - interval.low) * float64(currInstrument.Lot) * float64(currInstrument.Quantity)
 					instrumentProfit += p
 					b.Client.Logger.Infof("last day sell out, profit = %.3f in percent = %.3f", p, (lastCandle.GetClose().ToFloat()-interval.low)/interval.low*100)
 					inStock = false
-					instrumentProfit -= lastCandle.GetClose().ToFloat() * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					instrumentProfit -= lastCandle.GetClose().ToFloat() * (bc.Commission / 100) * float64(currInstrument.Lot) * float64(currInstrument.Quantity)
 				}
 			} else {
 				// симуляция покупки по стоп лимит, если цена low не пересекает текущую свечу (она ниже) - считаем что ордер на покупку не выставится,
@@ -829,7 +761,7 @@ func (b *Bot) BackTest(start time.Time, bc BacktestConfig) (float64, float64, er
 					// if interval.low >= candle.GetLow().ToFloat() && interval.high <= candle.GetHigh().ToFloat() {
 					// могли бы купить
 					inStock = true
-					instrumentProfit -= interval.low * (bc.Commission / 100) * float64(currInstrument.lot) * float64(currInstrument.quantity)
+					instrumentProfit -= interval.low * (bc.Commission / 100) * float64(currInstrument.Lot) * float64(currInstrument.Quantity)
 					b.Client.Logger.Infof("buy with candle high = %.3f, low = %.3f", candle.GetHigh().ToFloat(), candle.GetLow().ToFloat())
 				}
 			}

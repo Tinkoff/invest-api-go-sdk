@@ -1,9 +1,10 @@
 package investgo
 
 import (
-	yaml "gopkg.in/yaml.v3"
 	"log"
 	"os"
+
+	yaml "gopkg.in/yaml.v3"
 )
 
 // Config - структура для кофигурации SDK
