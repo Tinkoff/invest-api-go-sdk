@@ -83,11 +83,25 @@ func NewClient(ctx context.Context, conf Config, l Logger) (*Client, error) {
 
 	if conf.AccountId == "" {
 		s := client.NewSandboxServiceClient()
-		resp, err := s.OpenSandboxAccount()
+		accountsResp, err := s.GetSandboxAccounts()
 		if err != nil {
 			return nil, err
 		}
-		client.Config.AccountId = resp.GetAccountId()
+		accs := accountsResp.GetAccounts()
+		if len(accs) < 1 {
+			resp, err := s.OpenSandboxAccount()
+			if err != nil {
+				return nil, err
+			}
+			client.Config.AccountId = resp.GetAccountId()
+		} else {
+			for _, acc := range accs {
+				if acc.GetStatus() == pb.AccountStatus_ACCOUNT_STATUS_OPEN {
+					client.Config.AccountId = acc.GetId()
+					break
+				}
+			}
+		}
 	}
 
 	return client, nil
