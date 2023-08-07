@@ -2,6 +2,7 @@ package investgo
 
 import (
 	"context"
+
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -51,7 +52,7 @@ func (t *TradesStream) Listen() error {
 	}
 }
 
-func (t *TradesStream) restart(ctx context.Context, attempt uint, err error) {
+func (t *TradesStream) restart(_ context.Context, attempt uint, err error) {
 	t.ordersClient.logger.Infof("try to restart trades stream err = %v, attempt = %v", err.Error(), attempt)
 }
 

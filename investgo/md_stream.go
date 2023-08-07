@@ -2,6 +2,7 @@ package investgo
 
 import (
 	"context"
+
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -374,6 +375,6 @@ func (mds *MarketDataStream) UnSubscribeAll() error {
 	return nil
 }
 
-func (mds *MarketDataStream) restart(ctx context.Context, attempt uint, err error) {
+func (mds *MarketDataStream) restart(_ context.Context, attempt uint, err error) {
 	mds.mdsClient.logger.Infof("try to restart md stream err = %v, attempt = %v", err.Error(), attempt)
 }

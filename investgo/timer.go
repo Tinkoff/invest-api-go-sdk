@@ -3,16 +3,18 @@ package investgo
 import (
 	"context"
 	"errors"
-	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"strings"
 	"time"
+
+	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 )
 
 // Event - события, START - сигнал к запуску, STOP - сигнал к остановке
 type Event int
 
 const (
-	START Event = iota
+	DAY   time.Duration = time.Hour * 24
+	START Event         = iota
 	STOP
 )
 
@@ -54,7 +56,7 @@ func (t *Timer) Start(ctx context.Context) error {
 		default:
 			// получаем текущее время
 			from := time.Now()
-			to := from.Add(time.Hour * 24)
+			to := from.Add(DAY)
 
 			// получаем ближайшие два торговых дня
 			resp, err := t.instrumentsService.TradingSchedules(t.exchange, from, to)
@@ -81,7 +83,6 @@ func (t *Timer) Start(ctx context.Context) error {
 				if err != nil {
 					return err
 				}
-
 			}
 
 			switch {
@@ -143,7 +144,7 @@ func (t *Timer) wait(ctx context.Context, dur time.Duration) bool {
 
 // findTradingDay - Поиск ближайшего торгового дня
 func (t *Timer) findTradingDay(start time.Time) (*pb.TradingDay, error) {
-	resp, err := t.instrumentsService.TradingSchedules(t.exchange, start, start.Add(time.Hour*24*7))
+	resp, err := t.instrumentsService.TradingSchedules(t.exchange, start, start.Add(DAY*7))
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +156,7 @@ func (t *Timer) findTradingDay(start time.Time) (*pb.TradingDay, error) {
 				}
 			}
 			// если не нашлось дня, запросим еще на неделю расписание
-			return t.findTradingDay(start.Add(time.Hour * 24 * 7))
+			return t.findTradingDay(start.Add(DAY * 7))
 		}
 	}
 	return nil, errors.New("trading day not found")

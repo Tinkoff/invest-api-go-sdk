@@ -3,11 +3,12 @@ package bot
 import (
 	"context"
 	"errors"
-	"github.com/tinkoff/invest-api-go-sdk/investgo"
-	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"math"
 	"strings"
 	"sync"
+
+	"github.com/tinkoff/invest-api-go-sdk/investgo"
+	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 )
 
 // QUANTITY - Кол-во лотов инструментов, которыми торгует бот

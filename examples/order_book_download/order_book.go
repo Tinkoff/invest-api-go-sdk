@@ -4,18 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
-	"github.com/tinkoff/invest-api-go-sdk/investgo"
-	pb "github.com/tinkoff/invest-api-go-sdk/proto"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"log"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/jmoiron/sqlx"
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/tinkoff/invest-api-go-sdk/investgo"
+	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 const (

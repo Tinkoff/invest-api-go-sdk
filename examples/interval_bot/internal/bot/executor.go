@@ -3,12 +3,13 @@ package bot
 import (
 	"context"
 	"fmt"
-	"github.com/tinkoff/invest-api-go-sdk/investgo"
-	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tinkoff/invest-api-go-sdk/investgo"
+	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 )
 
 type InstrumentState int

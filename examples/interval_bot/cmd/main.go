@@ -2,11 +2,6 @@ package main
 
 import (
 	"context"
-	"github.com/tinkoff/invest-api-go-sdk/examples/interval_bot/internal/bot"
-	"github.com/tinkoff/invest-api-go-sdk/investgo"
-	pb "github.com/tinkoff/invest-api-go-sdk/proto"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"log"
 	"math"
 	"os"
@@ -15,6 +10,12 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/tinkoff/invest-api-go-sdk/examples/interval_bot/internal/bot"
+	"github.com/tinkoff/invest-api-go-sdk/investgo"
+	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // Параметры для изменения конфигурации бота

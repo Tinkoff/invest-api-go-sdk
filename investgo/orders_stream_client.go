@@ -2,6 +2,7 @@ package investgo
 
 import (
 	"context"
+
 	pb "github.com/tinkoff/invest-api-go-sdk/proto"
 	"github.com/tinkoff/invest-api-go-sdk/retry"
 	"google.golang.org/grpc"

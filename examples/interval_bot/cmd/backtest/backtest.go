@@ -3,13 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/schollz/progressbar/v3"
-	"github.com/sourcegraph/conc/pool"
-	"github.com/tinkoff/invest-api-go-sdk/examples/interval_bot/internal/bot"
-	"github.com/tinkoff/invest-api-go-sdk/investgo"
-	pb "github.com/tinkoff/invest-api-go-sdk/proto"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"log"
 	"math"
 	"os"
@@ -19,6 +12,14 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/schollz/progressbar/v3"
+	"github.com/sourcegraph/conc/pool"
+	"github.com/tinkoff/invest-api-go-sdk/examples/interval_bot/internal/bot"
+	"github.com/tinkoff/invest-api-go-sdk/investgo"
+	pb "github.com/tinkoff/invest-api-go-sdk/proto"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // DISABLE_INFO_LOGS - Отключение подробных сообщений о сделках по инструментам
