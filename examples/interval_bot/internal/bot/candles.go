@@ -18,7 +18,7 @@ type StorageInstrument struct {
 	PriceStep      *pb.Quotation
 	FirstUpdate    time.Time
 	LastUpdate     time.Time
-	ticker         string
+	Ticker         string
 }
 
 // CandlesStorage - Локально хранилище свечей в sqlite
@@ -51,16 +51,30 @@ create table if not exists updates (
 );
 `
 
+// NewCandlesStorageRequest - Параметры для создания хранилища свечей
+type NewCandlesStorageRequest struct {
+	// DBPath - Путь к файлу sqlite
+	DBPath string
+	// Update - Нужно ли обновлять историю
+	Update bool
+	// RequiredInstruments - Требуемые инструменты
+	RequiredInstruments map[string]StorageInstrument
+	Logger              investgo.Logger
+	MarketDataService   *investgo.MarketDataServiceClient
+	// From, To - Интервал,
+	From, To time.Time
+}
+
 // NewCandlesStorage - Создание хранилища свечей
-func NewCandlesStorage(dbpath string, update bool, required map[string]StorageInstrument, l investgo.Logger, mds *investgo.MarketDataServiceClient) (*CandlesStorage, error) {
+func NewCandlesStorage(req NewCandlesStorageRequest) (*CandlesStorage, error) {
 	cs := &CandlesStorage{
-		mds:         mds,
+		mds:         req.MarketDataService,
 		instruments: make(map[string]StorageInstrument),
 		candles:     make(map[string][]*pb.HistoricCandle),
-		logger:      l,
+		logger:      req.Logger,
 	}
 	// инициализируем бд
-	db, err := cs.initDB(dbpath)
+	db, err := cs.initDB(req.DBPath)
 	if err != nil {
 		return nil, err
 	}
@@ -72,10 +86,10 @@ func NewCandlesStorage(dbpath string, update bool, required map[string]StorageIn
 	}
 	cs.logger.Infof("got %v unique instruments from storage", len(DBUpdates))
 	// если инструмента в бд нет, то загружаем данные по нему, если есть, но недостаточно, то догружаем свечи
-	for id, instrument := range required {
+	now := time.Now()
+	for id, instrument := range req.RequiredInstruments {
 		if _, ok := DBUpdates[id]; !ok {
 			cs.logger.Infof("candles for %v not found, downloading...", id)
-			now := time.Now()
 			newCandles, err := cs.mds.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
 				Instrument: id,
 				Interval:   instrument.CandleInterval,
@@ -125,9 +139,9 @@ func NewCandlesStorage(dbpath string, update bool, required map[string]StorageIn
 		}
 	}
 	// если нужно обновить с lastUpdate до сейчас
-	if update {
+	if req.Update {
 		// обновляем в бд данные по всем инструментам
-		for id := range required {
+		for id := range req.RequiredInstruments {
 			err = cs.UpdateCandlesHistory(id)
 			if err != nil {
 				return nil, err
@@ -135,8 +149,9 @@ func NewCandlesStorage(dbpath string, update bool, required map[string]StorageIn
 		}
 	}
 	// загрузка всех свечей из бд в мапу
-	for id := range required {
-		tmp, err := cs.CandlesAll(id)
+	for id, instrument := range req.RequiredInstruments {
+		tmp, err := cs.loadCandlesFromDB(id, instrument.PriceStep, req.From, req.To)
+		// tmp, err := cs.CandlesAll(id)
 		if err != nil {
 			return nil, err
 		}
@@ -156,7 +171,7 @@ func (c *CandlesStorage) ticker(key string) string {
 	if !ok {
 		return "not found"
 	}
-	return t.ticker
+	return t.Ticker
 }
 
 // Candles - Получение исторических свечей по uid инструмента
@@ -463,6 +478,6 @@ func (c *CandlesStorage) loadCandlesFromDB(uid string, inc *pb.Quotation, from, 
 			})
 		}
 	}
-	c.logger.Infof("%v %v candles downloaded from storage", uid, len(candles))
+	c.logger.Infof("%v %v candles downloaded from storage", c.ticker(uid), len(candles))
 	return candles, nil
 }
