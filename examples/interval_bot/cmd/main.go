@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,7 +22,7 @@ var (
 	intervalConfig = bot.IntervalStrategyConfig{
 		PreferredPositionPrice:  200,
 		MaxPositionPrice:        600,
-		TopInstrumentsQuantity:  15,
+		TopInstrumentsQuantity:  10,
 		MinProfit:               0.3,
 		DaysToCalculateInterval: 3,
 		StopLossPercent:         1.8,
@@ -112,16 +113,16 @@ func main() {
 	// которыми предстоит торговать
 	// слайс идентификаторов торговых инструментов instrument_uid
 	instrumentIds := make([]string, 0, INSTRUMENTS_MAX)
-	insrtumentsService := client.NewInstrumentsServiceClient()
+	instrumentsService := client.NewInstrumentsServiceClient()
 	// получаем список фондов доступных для торговли через investAPI
-	etfsResp, err := insrtumentsService.Etfs(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
+	etfsResp, err := instrumentsService.Etfs(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
 	if err != nil {
 		logger.Errorf(err.Error())
 	}
 	// рублевые фонды с московской биржи
 	etfs := etfsResp.GetInstruments()
 	// получаем список акций доступных для торговли через investAPI
-	sharesResp, err := insrtumentsService.Shares(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
+	sharesResp, err := instrumentsService.Shares(pb.InstrumentStatus_INSTRUMENT_STATUS_BASE)
 	if err != nil {
 		logger.Errorf(err.Error())
 	}
@@ -167,12 +168,90 @@ func main() {
 	// передаем инструменты в конфиг
 	intervalConfig.Instruments = instrumentIds
 	// запрашиваемое время для свечей не может быть раньше StorageFromTime
-	if time.Now().Add(-time.Hour * 24 * time.Duration(intervalConfig.DaysToCalculateInterval)).Before(intervalConfig.StorageFromTime) {
+	now := time.Now()
+	if now.Add(-time.Hour * 24 * time.Duration(intervalConfig.DaysToCalculateInterval)).Before(intervalConfig.StorageFromTime) {
 		intervalConfig.StorageFromTime = time.Now().Add(-time.Hour * 24 * time.Duration(intervalConfig.DaysToCalculateInterval))
 	}
-
+	// Далее создаем внешние зависимости для бота - хранилище и исполнитель
+	// по конфигу стратегии заполняем map для executor
+	marketDataService := client.NewMarketDataServiceClient()
+	// инструменты для исполнителя, заполняем информацию по всем инструментам из конфига
+	// для торгов передадим избранные
+	instrumentsForExecutor := make(map[string]bot.Instrument, len(instrumentIds))
+	// инструменты для хранилища
+	instrumentsForStorage := make(map[string]bot.StorageInstrument, len(instrumentIds))
+	for _, instrument := range instrumentIds {
+		// в данном случае ключ это uid, поэтому используем InstrumentByUid()
+		resp, err := instrumentsService.InstrumentByUid(instrument)
+		if err != nil {
+			cancel()
+			logger.Errorf(err.Error())
+		}
+		instrumentsForExecutor[instrument] = bot.Instrument{
+			EntryPrice:      0,
+			Lot:             resp.GetInstrument().GetLot(),
+			Currency:        resp.GetInstrument().GetCurrency(),
+			Ticker:          resp.GetInstrument().GetTicker(),
+			MinPriceInc:     resp.GetInstrument().GetMinPriceIncrement(),
+			StopLossPercent: intervalConfig.StopLossPercent,
+		}
+		instrumentsForStorage[instrument] = bot.StorageInstrument{
+			CandleInterval: intervalConfig.StorageCandleInterval,
+			PriceStep:      resp.GetInstrument().GetMinPriceIncrement(),
+			FirstUpdate:    intervalConfig.StorageFromTime,
+			Ticker:         resp.GetInstrument().GetTicker(),
+		}
+	}
+	// получаем последние цены по инструментам, слишком дорогие отбрасываем,
+	// а для остальных подбираем оптимальное кол-во лотов, чтобы стоимость открытия позиции была близка к желаемой
+	// подходящие инструменты
+	preferredInstruments := make([]string, 0, len(instrumentIds))
+	resp, err := marketDataService.GetLastPrices(instrumentIds)
+	if err != nil {
+		cancel()
+		logger.Errorf(err.Error())
+	}
+	lp := resp.GetLastPrices()
+	for _, lastPrice := range lp {
+		uid := lastPrice.GetInstrumentUid()
+		instrument := instrumentsForExecutor[uid]
+		// если цена одного лота слишком велика, отбрасываем этот инструмент
+		if lastPrice.GetPrice().ToFloat()*float64(instrument.Lot) > intervalConfig.MaxPositionPrice {
+			delete(instrumentsForExecutor, uid)
+			delete(instrumentsForStorage, uid)
+			continue
+		}
+		// добавляем в список подходящих инструментов
+		preferredInstruments = append(preferredInstruments, uid)
+		// если цена 1 лота меньше предпочтительной цены, меняем quantity
+		if lastPrice.GetPrice().ToFloat()*float64(instrument.Lot) < intervalConfig.PreferredPositionPrice {
+			preferredQuantity := math.Floor(intervalConfig.PreferredPositionPrice / (float64(instrument.Lot) * lastPrice.GetPrice().ToFloat()))
+			instrument.Quantity = int64(preferredQuantity)
+			instrumentsForExecutor[uid] = instrument
+		} else {
+			instrument.Quantity = 1
+			instrumentsForExecutor[uid] = instrument
+		}
+	}
+	// меняем инструменты в конфиге
+	intervalConfig.Instruments = preferredInstruments
+	// создаем хранилище для свечей
+	storage, err := bot.NewCandlesStorage(bot.NewCandlesStorageRequest{
+		DBPath:              intervalConfig.StorageDBPath,
+		Update:              intervalConfig.StorageUpdate,
+		RequiredInstruments: instrumentsForStorage,
+		Logger:              client.Logger,
+		MarketDataService:   marketDataService,
+		From:                now.Add(-time.Hour * 24 * time.Duration(intervalConfig.DaysToCalculateInterval)),
+		To:                  now,
+	})
+	if err != nil {
+		cancel()
+		logger.Fatalf(err.Error())
+	}
+	executor := bot.NewExecutor(ctx, client, instrumentsForExecutor)
 	// создание интервального бота
-	intervalBot, err := bot.NewBot(ctx, client, intervalConfig)
+	intervalBot, err := bot.NewBot(ctx, client, storage, executor, intervalConfig)
 	if err != nil {
 		logger.Fatalf("interval bot creating fail %v", err.Error())
 	}
