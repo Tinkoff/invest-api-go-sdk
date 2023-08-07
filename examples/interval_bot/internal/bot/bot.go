@@ -273,7 +273,7 @@ func (b *Bot) checkMoneyBalance(currency string, required float64) error {
 		}
 	}
 
-	if diff := balance - required; diff < 0 {
+	if diff := balance - math.Round(required*1.05); diff < 0 {
 		if strings.HasPrefix(b.Client.Config.EndPoint, "sandbox") {
 			sandbox := b.Client.NewSandboxServiceClient()
 			resp, err := sandbox.SandboxPayIn(&investgo.SandboxPayInRequest{
