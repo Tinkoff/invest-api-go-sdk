@@ -64,20 +64,20 @@ func (s *States) Get(id string) (State, bool) {
 }
 
 type Instrument struct {
-	// quantity - Количество лотов, которое покупает/продает исполнитель за 1 поручение
-	quantity int64
+	// Quantity - Количество лотов, которое покупает/продает исполнитель за 1 поручение
+	Quantity int64
 	// lot - Лотность инструмента
-	lot int32
-	// currency - Код валюты инструмента
-	currency string
-	// ticker - Тикер инструмента
-	ticker string
-	// minPriceInc - Минимальный шаг цены
-	minPriceInc *pb.Quotation
+	Lot int32
+	//currency - Код валюты инструмента
+	Currency string
+	//ticker - Тикер инструмента
+	Ticker string
+	//minPriceInc - Минимальный шаг цены
+	MinPriceInc *pb.Quotation
 	// entryPrice - После открытия позиции, сохраняется цена этой сделки
-	entryPrice float64
+	EntryPrice float64
 	// stopLossPercent - Процент изменения цены, для стоп-лосс заявки
-	stopLossPercent float64
+	StopLossPercent float64
 }
 
 type intervals struct {
@@ -222,8 +222,8 @@ func (e *Executor) BuyLimit(id string, price float64) error {
 	}
 	resp, err := e.ordersService.Buy(&investgo.PostOrderRequestShort{
 		InstrumentId: id,
-		Quantity:     currentInstrument.quantity,
-		Price:        investgo.FloatToQuotation(price, currentInstrument.minPriceInc),
+		Quantity:     currentInstrument.Quantity,
+		Price:        investgo.FloatToQuotation(price, currentInstrument.MinPriceInc),
 		AccountId:    e.client.Config.AccountId,
 		OrderType:    pb.OrderType_ORDER_TYPE_LIMIT,
 		OrderId:      investgo.CreateUid(),
@@ -237,7 +237,7 @@ func (e *Executor) BuyLimit(id string, price float64) error {
 		orderId:         resp.GetOrderId(),
 	})
 	e.client.Logger.Infof("post buy limit order with %v price = %v", e.ticker(resp.GetInstrumentUid()),
-		investgo.FloatToQuotation(price, currentInstrument.minPriceInc).ToFloat())
+		investgo.FloatToQuotation(price, currentInstrument.MinPriceInc).ToFloat())
 	return nil
 }
 
@@ -247,7 +247,7 @@ func (e *Executor) ticker(key string) string {
 	if !ok {
 		return "not found"
 	}
-	return t.ticker
+	return t.Ticker
 }
 
 // possibleToBuy - Проверка свободного баланса денежных средств на счете, для покупки инструмента c uid = id по цене price
@@ -257,12 +257,12 @@ func (e *Executor) possibleToBuy(id string, price float64) bool {
 		e.client.Logger.Infof("instrument %v not found in executor map", id)
 		return false
 	}
-	required := price * float64(currentInstrument.quantity) * float64(currentInstrument.lot)
+	required := price * float64(currentInstrument.Quantity) * float64(currentInstrument.Lot)
 	positionMoney := e.positions.Get().GetMoney()
 	var moneyInFloat float64
 	for _, pm := range positionMoney {
 		m := pm.GetAvailableValue()
-		if strings.EqualFold(m.GetCurrency(), currentInstrument.currency) {
+		if strings.EqualFold(m.GetCurrency(), currentInstrument.Currency) {
 			moneyInFloat = m.ToFloat()
 		}
 	}
@@ -289,8 +289,8 @@ func (e *Executor) SellLimit(id string, price float64) error {
 	}
 	resp, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
 		InstrumentId: id,
-		Quantity:     currentInstrument.quantity,
-		Price:        investgo.FloatToQuotation(price, currentInstrument.minPriceInc),
+		Quantity:     currentInstrument.Quantity,
+		Price:        investgo.FloatToQuotation(price, currentInstrument.MinPriceInc),
 		AccountId:    e.client.Config.AccountId,
 		OrderType:    pb.OrderType_ORDER_TYPE_LIMIT,
 		OrderId:      investgo.CreateUid(),
@@ -303,7 +303,7 @@ func (e *Executor) SellLimit(id string, price float64) error {
 		orderId:         resp.GetOrderId(),
 	})
 	e.client.Logger.Infof("post sell limit order, with %v price = %v", e.ticker(resp.GetInstrumentUid()),
-		investgo.FloatToQuotation(price, currentInstrument.minPriceInc).ToFloat())
+		investgo.FloatToQuotation(price, currentInstrument.MinPriceInc).ToFloat())
 	return nil
 }
 
@@ -358,8 +358,8 @@ func (e *Executor) ReplaceLimit(id string, price float64) error {
 		AccountId:  e.client.Config.AccountId,
 		OrderId:    state.orderId,
 		NewOrderId: investgo.CreateUid(),
-		Quantity:   currentInstrument.quantity,
-		Price:      investgo.FloatToQuotation(price, currentInstrument.minPriceInc),
+		Quantity:   currentInstrument.Quantity,
+		Price:      investgo.FloatToQuotation(price, currentInstrument.MinPriceInc),
 		PriceType:  pb.PriceType_PRICE_TYPE_CURRENCY,
 	})
 	if err != nil {
@@ -422,8 +422,8 @@ func (e *Executor) UpdateInterval(id string, i Interval) error {
 		// Если уже выставлена заявка на продажу, ее не нужно менять
 		return nil
 	case TRY_TO_BUY:
-		p1 := investgo.FloatToQuotation(i.low, currentInstrument.minPriceInc)
-		p2 := investgo.FloatToQuotation(oldInterval.low, currentInstrument.minPriceInc)
+		p1 := investgo.FloatToQuotation(i.low, currentInstrument.MinPriceInc)
+		p2 := investgo.FloatToQuotation(oldInterval.low, currentInstrument.MinPriceInc)
 		if reflect.DeepEqual(p1, p2) {
 			return nil
 		}
@@ -577,13 +577,13 @@ func (e *Executor) listenTrades(ctx context.Context) error {
 				switch {
 				case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_BUY:
 					is = IN_STOCK
-					currentInstrument.entryPrice = orderPrice
+					currentInstrument.EntryPrice = orderPrice
 					e.instruments[uid] = currentInstrument
 					e.client.Logger.Infof("%v buy order is fill, price = %v", e.ticker(t.GetInstrumentUid()), orderPrice)
 				case t.GetDirection() == pb.OrderDirection_ORDER_DIRECTION_SELL:
 					// теперь после выхода из позиции мы ждем подходящую цену для входа
 					is = WAIT_ENTRY_PRICE
-					profit := (orderPrice - currentInstrument.entryPrice) * float64(currentInstrument.lot) * float64(currentInstrument.quantity)
+					profit := (orderPrice - currentInstrument.EntryPrice) * float64(currentInstrument.Lot) * float64(currentInstrument.Quantity)
 					e.strategyProfit += profit
 					e.client.Logger.Infof("%v sell order is fill, profit = %.9f", e.ticker(t.GetInstrumentUid()), profit)
 				}
@@ -682,7 +682,7 @@ func (e *Executor) listenLastPrices(ctx context.Context) error {
 					if !ok {
 						e.client.Logger.Errorf("%v not found in executor map", uid)
 					}
-					if price <= investgo.FloatToQuotation(interval.low*(1-instrument.stopLossPercent/100), instrument.minPriceInc).ToFloat() {
+					if price <= investgo.FloatToQuotation(interval.low*(1-instrument.StopLossPercent/100), instrument.MinPriceInc).ToFloat() {
 						e.client.Logger.Infof("stop loss with %v", e.ticker(uid))
 						// Отменяем заявку на продажу
 						err = e.CancelLimit(uid)
@@ -691,7 +691,7 @@ func (e *Executor) listenLastPrices(ctx context.Context) error {
 						}
 						_, err := e.ordersService.Sell(&investgo.PostOrderRequestShort{
 							InstrumentId: uid,
-							Quantity:     instrument.quantity,
+							Quantity:     instrument.Quantity,
 							Price:        nil,
 							AccountId:    e.client.Config.AccountId,
 							OrderType:    pb.OrderType_ORDER_TYPE_MARKET,
@@ -744,7 +744,7 @@ func (e *Executor) SellOut() (float64, error) {
 			e.client.Logger.Infof("%v not found in executor instruments map", security.GetInstrumentUid())
 			continue
 		} else {
-			lot = int64(instrument.lot)
+			lot = int64(instrument.Lot)
 		}
 		balanceInLots := security.GetBalance() / lot
 		if balanceInLots < 0 {
@@ -775,7 +775,7 @@ func (e *Executor) SellOut() (float64, error) {
 			}
 			if resp.GetExecutionReportStatus() == pb.OrderExecutionReportStatus_EXECUTION_REPORT_STATUS_FILL {
 				// разница в цене инструмента * лотность * кол-во лотов
-				sellOutProfit += (resp.GetExecutedOrderPrice().ToFloat() - instrument.entryPrice) * float64(instrument.lot) * float64(instrument.quantity)
+				sellOutProfit += (resp.GetExecutedOrderPrice().ToFloat() - instrument.EntryPrice) * float64(instrument.Lot) * float64(instrument.Quantity)
 			}
 		}
 	}
